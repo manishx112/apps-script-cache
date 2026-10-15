@@ -245,11 +245,21 @@ function openBrowser(url) {
 async function google() {
   const file = join(ROOT, ".env");
   const env = existsSync(file) ? parseEnvFile(file) : {};
-  const clientId = (env.GOOGLE_CLIENT_ID ?? "").trim();
-  const clientSecret = (env.GOOGLE_CLIENT_SECRET ?? "").trim();
-  if (!clientId.endsWith(".apps.googleusercontent.com") || !clientSecret) {
-    fail("Put GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first (steps in DRIVE.md).");
+  let clientId = (env.GOOGLE_CLIENT_ID ?? "").trim();
+  let clientSecret = (env.GOOGLE_CLIENT_SECRET ?? "").trim();
+  const isExample = (v) => /123456789012-abc123xyz|GOCSPX-x+$|^\.\.\./.test(v);
+  if (!/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(clientId) || isExample(clientId)) {
+    console.log("Google Cloud → Google Auth Platform → Clients → your Desktop client → copy the Client ID.");
+    clientId = (await ask("Paste Client ID: ")).trim();
+    if (!/^\d+-[a-z0-9]+\.apps\.googleusercontent\.com$/.test(clientId) || isExample(clientId)) {
+      fail("That is not a Client ID. It looks like 1234567890-abcdef….apps.googleusercontent.com");
+    }
   }
+  if (!clientSecret.startsWith("GOCSPX-") || isExample(clientSecret)) {
+    clientSecret = (await ask("Paste Client secret (hidden): ", { hidden: true })).trim();
+    if (!clientSecret.startsWith("GOCSPX-") || isExample(clientSecret)) fail("That is not a Client secret. It starts with GOCSPX-");
+  }
+  setEnvValues({ GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret });
 
   const { createServer } = await import("node:http");
   const state = randomBytes(16).toString("hex");
