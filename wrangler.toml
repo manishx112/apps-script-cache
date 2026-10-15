@@ -1,5 +1,6 @@
 name = "apps-script-cache"
 main = "worker/src/index.ts"
+account_id = "60e5ea1d70c465557f4dfbff064ca78d"
 compatibility_date = "2026-09-15"
 compatibility_flags = ["nodejs_compat"]
 

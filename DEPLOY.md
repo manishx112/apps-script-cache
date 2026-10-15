@@ -98,11 +98,37 @@ Deployed apps-script-cache triggers
 
 | I want to… | Run |
 |---|---|
-| Deploy after changing code | `npm run deploy` |
+| Deploy after changing code | `git add -A` → `git commit -m "…"` → `git push` (GitHub deploys it, see below). `npm run deploy` still works from your PC. |
 | Change my login password or MongoDB password | edit `.env`, then `npm run secrets` |
 | See live logs (requests, cron runs, CPU time) | `npm run tail` (Ctrl+C to stop) |
 | Try changes on my PC before deploying | `npm run dev` → open http://localhost:5173 (uses `.env`) |
 | See what's deployed / roll back | Cloudflare dashboard → Workers & Pages → apps-script-cache → Deployments |
+
+## Auto-deploy from GitHub
+
+The code lives at https://github.com/manishx112/apps-script-cache.
+Every push to `main` runs [.github/workflows/deploy.yml](.github/workflows/deploy.yml), which builds the site and runs `npm run deploy` on GitHub's servers.
+
+**One-time setup** (lets GitHub upload to your Cloudflare account):
+
+1. Cloudflare dashboard → **My Profile → API Tokens → Create Token** → template **Edit Cloudflare Workers** → **Continue to summary → Create Token**. Copy the token.
+2. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**
+   - Name: `CLOUDFLARE_API_TOKEN`
+   - Secret: the token from step 1
+3. GitHub repo → **Actions → Deploy → Run workflow** to test it.
+
+✅ The run turns green and https://apps-script-cache.manishx112.workers.dev shows your latest code.
+
+**Everyday flow:**
+
+```powershell
+git add -A
+git commit -m "describe your change"
+git push
+```
+
+Watch progress under the repo's **Actions** tab (about 1–2 minutes).
+*Why:* `MONGODB_URI`, `ADMIN_KEY` and `SESSION_SECRET` are already stored on Cloudflare, so GitHub never needs them. Change them only with `npm run secrets` from your PC.
 
 ## Where things are on Cloudflare
 
