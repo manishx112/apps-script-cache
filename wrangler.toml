@@ -1,0 +1,30 @@
+name = "apps-script-cache"
+main = "worker/src/index.ts"
+compatibility_date = "2026-09-15"
+compatibility_flags = ["nodejs_compat"]
+
+# The React app (built by `npm run build:web`) is served from the same Worker.
+# /api/* and /d/* run the Worker first; every other path is a static file, with
+# index.html as the fallback so client-side routes survive a page refresh.
+[assets]
+directory = "./worker/public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/d/*"]
+
+# One cron for all sources: each run fetches whichever sources are due.
+[triggers]
+crons = ["* * * * *"]
+
+# Non-secret tuning knobs. Secrets (MONGODB_URI, ADMIN_KEY, SESSION_SECRET) are set with
+# `npm run secret:*` / `wrangler secret put` and never live in this file.
+[vars]
+FETCH_TIMEOUT_MS = "25000"
+# Free plan allows 50 subrequests per invocation; each Apps Script call uses ~2 (302 redirect).
+MAX_SOURCES_PER_RUN = "10"
+# Workers allow 6 simultaneous connections per invocation; MongoDB keeps ~4 open.
+FETCH_CONCURRENCY = "2"
+PUBLIC_CACHE_TTL_SECONDS = "60"
+
+[observability]
+enabled = true
