@@ -30,7 +30,7 @@ export async function runScheduler(env: Env, scheduledTime: number): Promise<voi
       ],
     };
     const due = await d.sources
-      .find(dueFilter, { projection: { _id: 1, scriptUrl: 1, token: 1, lastFetchedAt: 1 }, sort: { lastFetchedAt: 1 }, limit: maxPerRun })
+      .find(dueFilter, { projection: { _id: 1, scriptUrl: 1, token: 1, name: 1, driveFileId: 1, lastFetchedAt: 1 }, sort: { lastFetchedAt: 1 }, limit: maxPerRun })
       .toArray();
 
     const results = await mapLimit(due, concurrency, async (s) => {

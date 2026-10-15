@@ -14,6 +14,8 @@ export interface Source {
   lastDurationMs: number | null;
   lastSizeBytes: number | null;
   createdAt: string;
+  /** Link to the JSON file in Google Drive (Drive storage only). */
+  driveFileUrl: string | null;
 }
 
 export interface Preview {

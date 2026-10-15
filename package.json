@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "secrets": "node scripts/set-secret.mjs env",
+    "google:connect": "node scripts/set-secret.mjs google",
     "dev": "node scripts/ensure-assets-dir.mjs && concurrently -k -n worker,web -c blue,green \"wrangler dev --test-scheduled --port 8787\" \"npm --workspace web run dev\"",
     "build": "npm run build:web && npm run build:worker",
     "build:web": "npm --workspace web run build",

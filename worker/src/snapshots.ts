@@ -1,5 +1,6 @@
 import { BSON, type ObjectId } from "mongodb";
-import type { Database, SnapshotDoc } from "./db";
+import type { Database, SnapshotDoc, SourceDoc } from "./db";
+import { jsonFileName, readJsonFile, writeJsonFile } from "./drive";
 
 // MongoDB documents max out at 16 MB of BSON. BSON can be several times larger than the JSON text
 // (array indexes become keys), so: small responses are always stored parsed; larger ones are measured;
@@ -36,6 +37,22 @@ export async function saveSnapshot(d: Database, sourceId: ObjectId, fetchedAt: D
   return "chunked";
 }
 
+/**
+ * Google Drive mode: the JSON goes to "<source name>.json" in the Drive folder; MongoDB keeps only
+ * the file id (sources.driveFileId and snapshots.driveFileId).
+ */
+export async function saveToDrive(env: Env, d: Database, source: Pick<SourceDoc, "_id" | "name" | "driveFileId">, fetchedAt: Date, text: string, sizeBytes: number): Promise<"drive"> {
+  const fileId = await writeJsonFile(env, { fileId: source.driveFileId ?? null, folderId: env.GOOGLE_DRIVE_FOLDER_ID!.trim(), name: jsonFileName(source.name), text, sizeBytes });
+  if (fileId !== source.driveFileId) await d.sources.updateOne({ _id: source._id }, { $set: { driveFileId: fileId } });
+  const before = await d.snapshots.findOneAndReplace(
+    { sourceId: source._id },
+    { sourceId: source._id, fetchedAt, sizeBytes, storage: "drive", driveFileId: fileId },
+    { upsert: true, projection: { storage: 1 }, returnDocument: "before" },
+  );
+  if (before?.storage === "chunked") await d.chunks.deleteMany({ sourceId: source._id });
+  return "drive";
+}
+
 export interface LoadedSnapshot {
   fetchedAt: Date;
   sizeBytes: number;
@@ -45,9 +62,14 @@ export interface LoadedSnapshot {
   data(): unknown;
 }
 
-export async function loadSnapshot(d: Database, sourceId: ObjectId): Promise<LoadedSnapshot | null> {
+export async function loadSnapshot(env: Env, d: Database, sourceId: ObjectId): Promise<LoadedSnapshot | null> {
   const snap = await d.snapshots.findOne({ sourceId });
   if (!snap) return null;
+  if (snap.storage === "drive") {
+    const text = await readJsonFile(env, snap.driveFileId!);
+    let parsed: unknown;
+    return { fetchedAt: snap.fetchedAt, sizeBytes: snap.sizeBytes, text, data: () => (parsed ??= JSON.parse(text)) };
+  }
   if (snap.storage === "chunked") {
     const parts = await d.chunks.find({ sourceId, version: snap.chunkVersion }, { sort: { n: 1 }, projection: { text: 1 } }).toArray();
     if (parts.length !== snap.chunkCount) throw new Error("Snapshot is incomplete (chunks missing); it will be rewritten on the next fetch.");

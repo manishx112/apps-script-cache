@@ -95,7 +95,7 @@ export async function handlePublic(req: Request, env: Env, ctx: ExecutionContext
   // Miss: read MongoDB
   let c: Cached;
   try {
-    c = await withDb(env, ctx, (d) => build(d, url.origin, token, variant, ttlMs));
+    c = await withDb(env, ctx, (d) => build(env, d, url.origin, token, variant, ttlMs));
   } catch (err) {
     if (err instanceof HttpError) {
       c = { status: err.status, body: JSON.stringify({ error: err.message }), contentType: "application/json; charset=utf-8", fetchedAt: null, expires: Date.now() + (err.status === 404 ? ttlMs : 10_000) };
@@ -119,7 +119,7 @@ function remember(key: string, c: Cached): void {
   memory.set(key, c);
 }
 
-async function build(d: Database, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached> {
+async function build(env: Env, d: Database, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached> {
   const source = await d.sources.findOne({ token });
   if (!source) throw new HttpError(404, "Unknown link.");
   const expires = Date.now() + ttlMs;
@@ -140,7 +140,7 @@ async function build(d: Database, origin: string, token: string, variant: Varian
     return { status: 200, body: JSON.stringify(meta, null, 2), contentType: "application/json; charset=utf-8", fetchedAt: source.lastSuccessAt?.toISOString() ?? null, expires };
   }
 
-  const snap = await loadSnapshot(d, source._id);
+  const snap = await loadSnapshot(env, d, source._id);
   if (!snap) throw new HttpError(503, source.lastError ? `No data yet — last fetch failed: ${source.lastError}` : "No data yet — the first fetch has not finished. Try again in a minute.");
   const fetchedAt = snap.fetchedAt.toISOString();
   if (variant === "csv") {

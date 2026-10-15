@@ -1,4 +1,4 @@
-import { ArrowLeft, Braces, ChartColumn, Clock, ExternalLink, FileSpreadsheet, Gauge, HardDrive, Info, Pause, Pencil, Play, RefreshCw, RotateCcw, Timer, Trash2 } from "lucide-react";
+import { ArrowLeft, Braces, FolderOpen, ChartColumn, Clock, ExternalLink, FileSpreadsheet, Gauge, HardDrive, Info, Pause, Pencil, Play, RefreshCw, RotateCcw, Timer, Trash2 } from "lucide-react";
 import { type ComponentType, useCallback, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, ApiError, dataUrl, type FetchLog, type Source } from "../api";
@@ -113,6 +113,16 @@ export default function SourceDetail() {
               </a>
             </div>
           </div>
+          {source.driveFileUrl && (
+            <a
+              href={source.driveFileUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn mt-4 bg-white/10 text-sm text-white ring-1 ring-white/15 hover:bg-white/20"
+            >
+              <FolderOpen className="size-4" /> Open JSON file in Google Drive
+            </a>
+          )}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <MiniLink icon={FileSpreadsheet} label="CSV link · Excel / Power BI" url={csvLink} />
             <MiniLink icon={Info} label="Status link · last success & errors" url={metaLink} />
@@ -138,7 +148,7 @@ export default function SourceDetail() {
           icon={HardDrive}
           label="Response size"
           value={formatBytes(source.lastSizeBytes)}
-          hint={(source.lastSizeBytes ?? 0) > 5 * 1024 * 1024 ? "⚠️ Over 5 MB" : "Stored in MongoDB"}
+          hint={(source.lastSizeBytes ?? 0) > 5 * 1024 * 1024 ? "⚠️ Over 5 MB" : source.driveFileUrl ? "Stored in Google Drive" : "Stored in MongoDB"}
         />
       </section>
 

@@ -17,17 +17,20 @@ export interface SourceDoc {
   lastDurationMs: number | null;
   lastSizeBytes: number | null;
   createdAt: Date;
+  /** Google Drive file holding the latest JSON (Drive mode only). */
+  driveFileId?: string | null;
 }
 
-/** Latest response per source. Small responses are stored parsed in `data`; huge ones as text chunks. */
+/** Latest response per source: parsed in `data` (inline), as text chunks (chunked), or as a Google Drive file (drive). */
 export interface SnapshotDoc {
   sourceId: ObjectId;
   fetchedAt: Date;
   sizeBytes: number;
-  storage: "inline" | "chunked";
+  storage: "inline" | "chunked" | "drive";
   data?: unknown;
   chunkVersion?: string;
   chunkCount?: number;
+  driveFileId?: string;
 }
 
 export interface ChunkDoc {

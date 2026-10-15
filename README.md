@@ -31,6 +31,11 @@ Use the link in Power BI, Excel (Power Query), Looker Studio, React — anything
 - **Large responses**: stored parsed when they fit a 16 MB MongoDB document; otherwise stored as text chunks in
   `snapshot_chunks` and reassembled on read. The UI warns above 5 MB.
 
+### Optional: Google Drive storage
+
+To keep MongoDB small, snapshots can be saved as `<source name>.json` files in a Google Drive folder
+(free 15 GB, no card). Setup: [DRIVE.md](DRIVE.md). Without it, snapshots stay in MongoDB.
+
 ### Data model (database `cache_proxy`)
 
 | Collection | Contents | Indexes |

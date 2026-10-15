@@ -21,8 +21,9 @@ crons = ["* * * * *"]
 # `npm run secret:*` / `wrangler secret put` and never live in this file.
 [vars]
 FETCH_TIMEOUT_MS = "25000"
-# Free plan allows 50 subrequests per invocation; each Apps Script call uses ~2 (302 redirect).
-MAX_SOURCES_PER_RUN = "10"
+# Free plan allows 50 subrequests per invocation; each source uses ~2 for Apps Script (302 redirect)
+# plus 1–2 for the Google Drive upload.
+MAX_SOURCES_PER_RUN = "8"
 # Workers allow 6 simultaneous connections per invocation; MongoDB keeps ~4 open.
 FETCH_CONCURRENCY = "2"
 PUBLIC_CACHE_TTL_SECONDS = "60"

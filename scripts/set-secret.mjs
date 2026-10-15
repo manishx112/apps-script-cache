@@ -210,7 +210,127 @@ async function envFile() {
   await putCloudflareSecret("ADMIN_KEY", adminKey);
   // Empty SESSION_SECRET in .env = keep the one already on Cloudflare (set during setup).
   if (sessionSecret) await putCloudflareSecret("SESSION_SECRET", sessionSecret);
+  if (GOOGLE_KEYS.every((k) => env[k]?.trim())) {
+    for (const k of GOOGLE_KEYS) await putCloudflareSecret(k, env[k].trim());
+  }
   ok("All secrets uploaded. Sign in at https://apps-script-cache.manishx112.workers.dev with your ADMIN_KEY.");
+}
+
+const GOOGLE_KEYS = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN", "GOOGLE_DRIVE_FOLDER_ID"];
+
+/** Sets or replaces KEY='value' lines in .env without touching the others. */
+function setEnvValues(values) {
+  const file = join(ROOT, ".env");
+  let lines = existsSync(file) ? readFileSync(file, "utf8").split(/\r?\n/) : [];
+  for (const [k, v] of Object.entries(values)) {
+    const line = `${k}='${v}'`;
+    const i = lines.findIndex((l) => new RegExp(`^\\s*${k}\\s*=`).test(l));
+    if (i >= 0) lines[i] = line;
+    else lines.push(line);
+  }
+  writeFileSync(file, lines.join("\n").replace(/\n*$/, "\n"));
+}
+
+function openBrowser(url) {
+  // rundll32 avoids cmd.exe treating the "&" in the URL as a command separator.
+  const [cmd, args] = process.platform === "win32" ? ["rundll32", ["url.dll,FileProtocolHandler", url]] : [process.platform === "darwin" ? "open" : "xdg-open", [url]];
+  spawn(cmd, args, { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+}
+
+/**
+ * One-time Google Drive connection: opens Google's consent page, receives the code on a local port,
+ * exchanges it for a refresh token, creates the "Apps Script Cache" folder, saves everything to .env
+ * and uploads it to Cloudflare. Needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env (see DRIVE.md).
+ */
+async function google() {
+  const file = join(ROOT, ".env");
+  const env = existsSync(file) ? parseEnvFile(file) : {};
+  const clientId = (env.GOOGLE_CLIENT_ID ?? "").trim();
+  const clientSecret = (env.GOOGLE_CLIENT_SECRET ?? "").trim();
+  if (!clientId.endsWith(".apps.googleusercontent.com") || !clientSecret) {
+    fail("Put GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first (steps in DRIVE.md).");
+  }
+
+  const { createServer } = await import("node:http");
+  const state = randomBytes(16).toString("hex");
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const redirectUri = `http://127.0.0.1:${server.address().port}`;
+  const authUrl =
+    "https://accounts.google.com/o/oauth2/v2/auth?" +
+    new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "https://www.googleapis.com/auth/drive.file",
+      access_type: "offline",
+      prompt: "consent",
+      state,
+    });
+
+  console.log("Opening Google in your browser — choose your account and click Allow.");
+  console.log(`If nothing opens, paste this link into the browser:\n${authUrl}\n`);
+  openBrowser(authUrl);
+
+  const code = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Timed out after 5 minutes waiting for Google.")), 5 * 60_000);
+    server.on("request", (req, res) => {
+      const u = new URL(req.url ?? "/", redirectUri);
+      if (u.pathname !== "/") return res.writeHead(404).end();
+      const good = u.searchParams.get("code") && u.searchParams.get("state") === state;
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        good
+          ? "<h2 style='font-family:sans-serif'>✅ Google Drive connected. You can close this tab and go back to the terminal.</h2>"
+          : `<h2 style='font-family:sans-serif'>❌ ${u.searchParams.get("error") ?? "Something went wrong"} — go back to the terminal.</h2>`,
+      );
+      clearTimeout(timer);
+      server.close();
+      if (good) resolve(u.searchParams.get("code"));
+      else reject(new Error(`Google said: ${u.searchParams.get("error") ?? "invalid response"}`));
+    });
+  }).catch((err) => fail(err.message));
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ code, client_id: clientId, client_secret: clientSecret, redirect_uri: redirectUri, grant_type: "authorization_code" }),
+  });
+  const tokens = await tokenRes.json();
+  if (!tokenRes.ok) fail(`Google token exchange failed: ${tokens.error_description ?? tokens.error ?? tokenRes.status}`);
+  if (!tokens.refresh_token) {
+    fail("Google did not return a refresh token. Remove the app at https://myaccount.google.com/permissions and run this again.");
+  }
+  ok("Google account connected.");
+
+  // Reuse the folder from an earlier run if it still exists, otherwise create it.
+  const auth = { authorization: `Bearer ${tokens.access_token}` };
+  let folderId = (env.GOOGLE_DRIVE_FOLDER_ID ?? "").trim();
+  if (folderId) {
+    const check = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,trashed`, { headers: auth });
+    const info = check.ok ? await check.json() : null;
+    if (!info || info.trashed) folderId = "";
+  }
+  if (!folderId) {
+    const res = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Apps Script Cache", mimeType: "application/vnd.google-apps.folder" }),
+    });
+    const folder = await res.json();
+    if (!res.ok) fail(`Could not create the Drive folder: ${folder.error?.message ?? res.status}`);
+    folderId = folder.id;
+  }
+  ok(`Drive folder ready: https://drive.google.com/drive/folders/${folderId}`);
+
+  setEnvValues({ GOOGLE_REFRESH_TOKEN: tokens.refresh_token, GOOGLE_DRIVE_FOLDER_ID: folderId });
+  ok("Saved to .env");
+  if (local) return;
+
+  console.log("Uploading Google secrets to Cloudflare…");
+  const values = { GOOGLE_CLIENT_ID: clientId, GOOGLE_CLIENT_SECRET: clientSecret, GOOGLE_REFRESH_TOKEN: tokens.refresh_token, GOOGLE_DRIVE_FOLDER_ID: folderId };
+  for (const k of GOOGLE_KEYS) await putCloudflareSecret(k, values[k]);
+  ok("Done! From the next refresh, every source's JSON is saved in the Drive folder above.");
 }
 
 async function adminKey() {
@@ -225,9 +345,9 @@ async function session() {
   await store("SESSION_SECRET", randomBytes(32).toString("base64url"));
 }
 
-const commands = { mongodb, "admin-key": adminKey, session, env: envFile };
+const commands = { mongodb, "admin-key": adminKey, session, env: envFile, google };
 if (!commands[command]) {
-  console.log("Usage: node scripts/set-secret.mjs <env|mongodb|admin-key|session> [--local] [--user name] [--host host]");
+  console.log("Usage: node scripts/set-secret.mjs <env|google|mongodb|admin-key|session> [--local] [--user name] [--host host]");
   process.exit(command ? 1 : 0);
 }
 await commands[command]();

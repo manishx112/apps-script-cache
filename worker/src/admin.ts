@@ -3,6 +3,7 @@
 import { ObjectId } from "mongodb";
 import { checkOrigin, isAuthenticated, login, logout } from "./auth";
 import { type Database, ensureIndexes, INTERVALS, newToken, openDb, parseObjectId, type SourceDoc, withDb } from "./db";
+import { driveEnabled, fileUrl, jsonFileName, renameItem, trashItem } from "./drive";
 import { fetchScript, isScriptUrl } from "./fetcher";
 import { errorJson, HttpError, intVar, json, readJson } from "./http";
 import { purgePublic } from "./public";
@@ -28,6 +29,7 @@ function serialize(s: SourceDoc) {
     lastDurationMs: s.lastDurationMs,
     lastSizeBytes: s.lastSizeBytes,
     createdAt: s.createdAt,
+    driveFileUrl: s.driveFileId ? fileUrl(s.driveFileId) : null,
   };
 }
 
@@ -137,6 +139,10 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
     return withDb(env, ctx, async (d) => {
       const updated = await d.sources.findOneAndUpdate({ _id: id }, { $set: set }, { returnDocument: "after" });
       if (!updated) throw new HttpError(404, "Source not found.");
+      // Keep the Drive file name in step with the source name (best effort).
+      if (set.name && updated.driveFileId && driveEnabled(env)) {
+        ctx.waitUntil(renameItem(env, updated.driveFileId, jsonFileName(set.name)).catch((e) => console.error("drive rename failed", String(e))));
+      }
       resetSchedulerMemo();
       return json({ source: serialize(updated) });
     });
@@ -147,6 +153,8 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
       const s = await getSource(d, id);
       await Promise.all([d.sources.deleteOne({ _id: id }), d.snapshots.deleteOne({ sourceId: id }), d.chunks.deleteMany({ sourceId: id }), d.logs.deleteMany({ sourceId: id })]);
       purgePublic(url.origin, s.token, ctx);
+      // Move its JSON file to Drive's trash (recoverable for 30 days).
+      if (s.driveFileId && driveEnabled(env)) ctx.waitUntil(trashItem(env, s.driveFileId).catch((e) => console.error("drive trash failed", String(e))));
       return json({ ok: true });
     });
   }
