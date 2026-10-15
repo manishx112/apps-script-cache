@@ -20,7 +20,8 @@ crons = ["* * * * *"]
 # Non-secret tuning knobs. Secrets (MONGODB_URI, ADMIN_KEY, SESSION_SECRET) are set with
 # `npm run secret:*` / `wrangler secret put` and never live in this file.
 [vars]
-FETCH_TIMEOUT_MS = "25000"
+# Some Apps Scripts take 30+ s; wait up to 60 s before marking a fetch as failed.
+FETCH_TIMEOUT_MS = "60000"
 # Free plan allows 50 subrequests per invocation; each source uses ~2 for Apps Script (302 redirect)
 # plus 1–2 for the Google Drive upload.
 MAX_SOURCES_PER_RUN = "8"
