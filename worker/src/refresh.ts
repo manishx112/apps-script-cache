@@ -43,5 +43,6 @@ export async function refreshSource(env: Env, d: Database, source: Pick<SourceDo
     d.logs.insertOne({ sourceId: source._id, at, ok: result.ok, durationMs: result.durationMs, sizeBytes: result.sizeBytes, error: result.error }),
   ]);
   if (result.ok) forgetPublic(source.token);
+  console.log(`refresh "${source.name}": ${result.ok ? `ok, ${result.sizeBytes} bytes → ${result.storage}` : `failed — ${result.error}`} (drive ${driveEnabled(env) ? "on" : "off"})`);
   return result;
 }
