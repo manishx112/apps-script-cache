@@ -9,6 +9,7 @@ import { errorJson, HttpError, intVar, json, readJson } from "./http";
 import { purgePublic } from "./public";
 import { refreshSource } from "./refresh";
 import { resetSchedulerMemo } from "./scheduler";
+import { describeSchedule, isActiveAt, nextActiveAt, parseSchedule } from "./schedule";
 import { buildPreview } from "./shape";
 
 const LARGE_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -30,6 +31,10 @@ function serialize(s: SourceDoc) {
     lastSizeBytes: s.lastSizeBytes,
     createdAt: s.createdAt,
     driveFileUrl: s.driveFileId ? fileUrl(s.driveFileId) : null,
+    schedule: s.schedule ?? null,
+    scheduleText: describeSchedule(s.schedule),
+    inWindow: isActiveAt(s.schedule, Date.now()),
+    nextWindowAt: s.schedule && !isActiveAt(s.schedule, Date.now()) ? new Date(nextActiveAt(s.schedule, Date.now())) : null,
   };
 }
 
@@ -91,6 +96,7 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
       name: validName(body.name),
       scriptUrl: validUrl(body.scriptUrl),
       intervalMin: validInterval(body.intervalMin),
+      schedule: parseSchedule(body.schedule),
       token: newToken(),
       status: "active",
       lastFetchedAt: new Date(),
@@ -131,6 +137,7 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
     if ("name" in body) set.name = validName(body.name);
     if ("scriptUrl" in body) set.scriptUrl = validUrl(body.scriptUrl);
     if ("intervalMin" in body) set.intervalMin = validInterval(body.intervalMin);
+    if ("schedule" in body) set.schedule = parseSchedule(body.schedule);
     if ("status" in body) {
       if (body.status !== "active" && body.status !== "paused") throw new HttpError(400, "status must be active or paused.");
       set.status = body.status;

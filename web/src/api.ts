@@ -1,3 +1,11 @@
+export interface Schedule {
+  /** 0 = Sunday … 6 = Saturday */
+  days: number[];
+  start: string;
+  end: string;
+  timezone: string;
+}
+
 export type Health = "ok" | "error" | "paused" | "pending";
 
 export interface Source {
@@ -16,6 +24,13 @@ export interface Source {
   createdAt: string;
   /** Link to the JSON file in Google Drive (Drive storage only). */
   driveFileUrl: string | null;
+  /** null = refresh around the clock */
+  schedule: Schedule | null;
+  /** e.g. "Mon–Sat · 10:00–18:00" */
+  scheduleText: string;
+  /** false outside the schedule window (no automatic refreshes right now) */
+  inWindow: boolean;
+  nextWindowAt: string | null;
 }
 
 export interface Preview {
@@ -83,8 +98,8 @@ export const api = {
   logout: () => request<{ ok: true }>("POST", "/api/logout"),
   listSources: () => request<{ sources: Source[] }>("GET", "/api/sources"),
   getSource: (id: string) => request<{ source: Source }>("GET", `/api/sources/${id}`),
-  createSource: (input: { name: string; scriptUrl: string; intervalMin: number }) => request<{ source: Source }>("POST", "/api/sources", input),
-  updateSource: (id: string, patch: Partial<Pick<Source, "name" | "scriptUrl" | "intervalMin" | "status">>) =>
+  createSource: (input: { name: string; scriptUrl: string; intervalMin: number; schedule: Schedule | null }) => request<{ source: Source }>("POST", "/api/sources", input),
+  updateSource: (id: string, patch: Partial<Pick<Source, "name" | "scriptUrl" | "intervalMin" | "status" | "schedule">>) =>
     request<{ source: Source }>("PATCH", `/api/sources/${id}`, patch),
   deleteSource: (id: string) => request<{ ok: true }>("DELETE", `/api/sources/${id}`),
   testUrl: (scriptUrl: string) => request<TestResult>("POST", "/api/sources/test", { scriptUrl }),

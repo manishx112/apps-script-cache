@@ -22,6 +22,8 @@ Use the link in Power BI, Excel (Power Query), Looker Studio, React — anything
                               └───────────────────────────────────────────────────┘
 ```
 
+- **Refresh schedule per source**: around the clock, or only on chosen weekdays and hours (e.g. Mon–Sat 10:00–18:00,
+  in the source's timezone). Outside the window nothing is fetched; the link keeps serving the last data.
 - **One cron (every minute)** picks active sources whose interval has elapsed, fetches them (2 at a time, max 10 per run),
   follows the 302 to `googleusercontent.com`, validates JSON, upserts the snapshot, updates status fields and writes a log.
   On failure the last good snapshot keeps being served and the error is recorded.

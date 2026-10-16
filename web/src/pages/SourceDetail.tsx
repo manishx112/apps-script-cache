@@ -142,7 +142,18 @@ export default function SourceDetail() {
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <InfoCard icon={Clock} label="Last success" value={timeAgo(source.lastSuccessAt, now)} hint={formatDateTime(source.lastSuccessAt)} />
-        <InfoCard icon={Timer} label="Refresh interval" value={`Every ${source.intervalMin} min`} hint={source.status === "paused" ? "Paused" : "Active"} />
+        <InfoCard
+          icon={Timer}
+          label="Refresh schedule"
+          value={`Every ${source.intervalMin} min`}
+          hint={
+            source.status === "paused"
+              ? "Paused"
+              : source.schedule && !source.inWindow && source.nextWindowAt
+                ? `${source.scheduleText} · off-hours, resumes ${new Date(source.nextWindowAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}`
+                : source.scheduleText
+          }
+        />
         <InfoCard icon={Gauge} label="Apps Script time" value={formatMs(source.lastDurationMs)} hint="Your link answers in ms" />
         <InfoCard
           icon={HardDrive}

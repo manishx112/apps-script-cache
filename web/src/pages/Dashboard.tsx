@@ -1,4 +1,4 @@
-import { Activity, CircleCheck, CirclePause, Database, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { Activity, CircleCheck, Moon, CirclePause, Database, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import { type ComponentType, useCallback, useState } from "react";
 import { Link } from "react-router";
 import { api, ApiError, dataUrl, type Source } from "../api";
@@ -115,8 +115,18 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-sm md:contents">
-                  <span>
+                  <span className="flex flex-col items-start gap-0.5">
                     <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{s.intervalMin} min</span>
+                    {s.schedule && (
+                      <span className="text-[11px] whitespace-nowrap text-slate-400" title={s.schedule.timezone}>
+                        {s.scheduleText}
+                      </span>
+                    )}
+                    {s.schedule && !s.inWindow && s.status === "active" && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-500" title={s.nextWindowAt ? `Next refresh window: ${new Date(s.nextWindowAt).toLocaleString()}` : undefined}>
+                        <Moon className="size-3" /> Off-hours
+                      </span>
+                    )}
                   </span>
                   <span className="text-slate-600" title={s.lastSuccessAt ?? undefined}>
                     {timeAgo(s.lastSuccessAt, now)}

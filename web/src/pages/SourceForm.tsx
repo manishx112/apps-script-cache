@@ -2,7 +2,8 @@ import { ArrowLeft, CheckCircle2, FlaskConical, Save, TriangleAlert, XCircle } f
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { api, ApiError, INTERVALS, SCRIPT_URL_RE, type TestResult } from "../api";
+import { api, ApiError, INTERVALS, type Schedule, SCRIPT_URL_RE, type TestResult } from "../api";
+import ScheduleEditor, { scheduleError } from "../components/ScheduleEditor";
 import { ErrorBox, PreviewTable, Spinner } from "../components/ui";
 import { formatBytes, formatMs } from "../lib/format";
 
@@ -14,6 +15,7 @@ export default function SourceForm() {
   const [name, setName] = useState("");
   const [scriptUrl, setScriptUrl] = useState("");
   const [intervalMin, setIntervalMin] = useState(15);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(editing);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -29,6 +31,7 @@ export default function SourceForm() {
         setName(source.name);
         setScriptUrl(source.scriptUrl);
         setIntervalMin(source.intervalMin);
+        setSchedule(source.schedule);
       })
       .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Could not load the source."))
       .finally(() => setLoading(false));
@@ -37,7 +40,7 @@ export default function SourceForm() {
   const url = scriptUrl.trim();
   const urlValid = SCRIPT_URL_RE.test(url);
   const showUrlError = url.length > 0 && !urlValid;
-  const canSave = urlValid && name.trim().length > 0 && !saving;
+  const canSave = urlValid && name.trim().length > 0 && !scheduleError(schedule) && !saving;
 
   async function runTest() {
     setTesting(true);
@@ -60,7 +63,7 @@ export default function SourceForm() {
     setSaving(true);
     setSaveError(null);
     try {
-      const input = { name: name.trim(), scriptUrl: url, intervalMin };
+      const input = { name: name.trim(), scriptUrl: url, intervalMin, schedule };
       if (editing) {
         await api.updateSource(id!, input);
         toast.success("Changes saved.");
@@ -149,6 +152,8 @@ export default function SourceForm() {
             ))}
           </select>
         </div>
+
+        <ScheduleEditor value={schedule} intervalMin={intervalMin} onChange={setSchedule} />
 
         {saveError && <ErrorBox message={saveError} />}
 

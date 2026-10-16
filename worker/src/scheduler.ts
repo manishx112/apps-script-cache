@@ -1,6 +1,7 @@
 import { ensureIndexes, withDb } from "./db";
 import { intVar, mapLimit } from "./http";
 import { refreshSource } from "./refresh";
+import { isActiveAt, nextActiveAt } from "./schedule";
 
 // Cron runs every minute. Treat a source as due slightly early so a 5-minute interval does not
 // slip to 6 minutes because the previous attempt started a few seconds after its cron tick.
@@ -22,16 +23,15 @@ export async function runScheduler(env: Env, scheduledTime: number): Promise<voi
 
   await withDb(env, null, async (d) => {
     await ensureIndexes(d);
-    const dueFilter = {
-      status: "active" as const,
-      $or: [
-        { lastFetchedAt: null },
-        { $expr: { $lte: [{ $add: ["$lastFetchedAt", { $multiply: ["$intervalMin", 60_000] }] }, new Date(now + EARLY_MS)] } },
-      ],
-    };
-    const due = await d.sources
-      .find(dueFilter, { projection: { _id: 1, scriptUrl: 1, token: 1, name: 1, driveFileId: 1, lastFetchedAt: 1 }, sort: { lastFetchedAt: 1 }, limit: maxPerRun })
+    // Few enough sources to decide in code: interval elapsed AND inside the source's schedule window.
+    const active = await d.sources
+      .find(
+        { status: "active" },
+        { projection: { _id: 1, scriptUrl: 1, token: 1, name: 1, driveFileId: 1, lastFetchedAt: 1, intervalMin: 1, schedule: 1 }, sort: { lastFetchedAt: 1 } },
+      )
       .toArray();
+    const intervalDue = (s: (typeof active)[number]) => (s.lastFetchedAt ? s.lastFetchedAt.getTime() + s.intervalMin * 60_000 - EARLY_MS : 0);
+    const due = active.filter((s) => intervalDue(s) <= now && isActiveAt(s.schedule, now)).slice(0, maxPerRun);
 
     const results = await mapLimit(due, concurrency, async (s) => {
       // Claim the source so an overlapping cron run does not fetch it twice.
@@ -42,16 +42,13 @@ export async function runScheduler(env: Env, scheduledTime: number): Promise<voi
     const done = results.filter((r) => r !== null);
     if (done.length) console.log(`scheduler: refreshed ${done.length} source(s), ${done.filter((r) => !r.ok).length} failed`);
 
-    // When is the next active source due?
-    const [next] = await d.sources
-      .aggregate<{ at: Date }>([
-        { $match: { status: "active" } },
-        { $project: { at: { $ifNull: [{ $add: ["$lastFetchedAt", { $multiply: ["$intervalMin", 60_000] }] }, new Date(0)] } } },
-        { $sort: { at: 1 } },
-        { $limit: 1 },
-      ])
-      .toArray();
-    const nextAt = next ? next.at.getTime() - EARLY_MS : Number.POSITIVE_INFINITY;
+    // When is the next source due (interval elapsed and its window open)?
+    const fetched = new Set(due.map((s) => String(s._id)));
+    let nextAt = Number.POSITIVE_INFINITY;
+    for (const s of active) {
+      const base = fetched.has(String(s._id)) ? Date.now() + s.intervalMin * 60_000 - EARLY_MS : Math.max(intervalDue(s), Date.now());
+      nextAt = Math.min(nextAt, nextActiveAt(s.schedule, base));
+    }
     nextDueAt = due.length >= maxPerRun ? 0 : Math.min(nextAt, Date.now() + MAX_SKIP_MS);
   });
 }

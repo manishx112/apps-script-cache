@@ -1,4 +1,5 @@
 import { type Collection, type Db, MongoClient, ObjectId } from "mongodb";
+import type { Schedule } from "./schedule";
 
 export const DB_NAME = "cache_proxy";
 export const INTERVALS = [5, 10, 15, 30, 60] as const;
@@ -19,6 +20,8 @@ export interface SourceDoc {
   createdAt: Date;
   /** Google Drive file holding the latest JSON (Drive mode only). */
   driveFileId?: string | null;
+  /** Refresh only on these days/hours; null or missing = around the clock. */
+  schedule?: Schedule | null;
 }
 
 /** Latest response per source: parsed in `data` (inline), as text chunks (chunked), or as a Google Drive file (drive). */
