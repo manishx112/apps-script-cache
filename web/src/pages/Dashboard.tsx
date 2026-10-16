@@ -3,6 +3,7 @@ import { type ComponentType, useCallback, useState } from "react";
 import { Link } from "react-router";
 import { api, ApiError, dataUrl, type Source } from "../api";
 import { CopyButton, EmptyState, ErrorBox, Skeleton, Spinner, StatusBadge } from "../components/ui";
+import DataHealth from "../components/DataHealth";
 import { useSourceActions } from "../components/useSourceActions";
 import { formatBytes, formatMs, timeAgo, useNow, usePolling } from "../lib/format";
 
@@ -145,6 +146,8 @@ export default function Dashboard() {
           </ul>
         </div>
       ) : null}
+
+      {sources && sources.length > 0 && <DataHealth />}
     </div>
   );
 }

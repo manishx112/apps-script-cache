@@ -7,7 +7,8 @@
 import { type Database, TOKEN_RE, withDb } from "./db";
 import { errorJson, HttpError, intVar, redact } from "./http";
 import { toCsv } from "./shape";
-import { loadSnapshot } from "./snapshots";
+import { driveEnabled } from "./drive";
+import { loadFromDrive, loadSnapshot } from "./snapshots";
 
 interface Cached {
   status: number;
@@ -140,7 +141,7 @@ async function build(env: Env, d: Database, origin: string, token: string, varia
     return { status: 200, body: JSON.stringify(meta, null, 2), contentType: "application/json; charset=utf-8", fetchedAt: source.lastSuccessAt?.toISOString() ?? null, expires };
   }
 
-  const snap = await loadSnapshot(env, d, source._id);
+  const snap = source.driveFileId && driveEnabled(env) ? await loadFromDrive(env, d, source) : await loadSnapshot(env, d, source._id);
   if (!snap) throw new HttpError(503, source.lastError ? `No data yet — last fetch failed: ${source.lastError}` : "No data yet — the first fetch has not finished. Try again in a minute.");
   const fetchedAt = snap.fetchedAt.toISOString();
   if (variant === "csv") {

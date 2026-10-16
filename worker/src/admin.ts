@@ -10,6 +10,7 @@ import { purgePublic } from "./public";
 import { refreshSource } from "./refresh";
 import { resetSchedulerMemo } from "./scheduler";
 import { describeSchedule, isActiveAt, nextActiveAt, parseSchedule } from "./schedule";
+import { cleanUp, dataReport } from "./maintenance";
 import { buildPreview } from "./shape";
 
 const LARGE_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -82,6 +83,17 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
     const r = await fetchScript(scriptUrl, timeoutMs);
     if (!r.ok) return json({ ok: false, durationMs: r.durationMs, sizeBytes: r.sizeBytes, error: r.error });
     return json({ ok: true, durationMs: r.durationMs, sizeBytes: r.sizeBytes, large: r.sizeBytes > LARGE_RESPONSE_BYTES, preview: buildPreview(r.data) });
+  }
+
+  // Database health report and cleanup of redundant / orphaned data.
+  if (path === "/api/maintenance" && method === "GET") {
+    return withDb(env, ctx, async (d) => json({ report: await dataReport(env, d) }));
+  }
+  if (path === "/api/maintenance/cleanup" && method === "POST") {
+    return withDb(env, ctx, async (d) => {
+      const result = await cleanUp(env, d);
+      return json({ ...result, report: await dataReport(env, d) });
+    });
   }
 
   if (path === "/api/sources" && method === "GET") {

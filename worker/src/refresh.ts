@@ -28,7 +28,7 @@ export async function refreshSource(env: Env, d: Database, source: Pick<SourceDo
     try {
       let storage: RefreshResult["storage"];
       let changed = true;
-      if (driveEnabled(env)) ({ storage, changed } = await saveToDrive(env, d, source, at, outcome.text, outcome.sizeBytes));
+      if (driveEnabled(env)) ({ storage, changed } = await saveToDrive(env, d, source, outcome.text, outcome.sizeBytes));
       else storage = await saveSnapshot(d, source._id, at, outcome.text, outcome.data, outcome.sizeBytes);
       result = { ok: true, durationMs: outcome.durationMs, sizeBytes: outcome.sizeBytes, error: null, storage, changed };
     } catch (err) {

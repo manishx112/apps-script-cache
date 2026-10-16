@@ -46,7 +46,6 @@ export async function saveToDrive(
   env: Env,
   d: Database,
   source: Pick<SourceDoc, "_id" | "name" | "driveFileId" | "driveFolderId" | "driveContentHash">,
-  fetchedAt: Date,
   text: string,
   sizeBytes: number,
 ): Promise<{ storage: "drive"; changed: boolean }> {
@@ -87,13 +86,25 @@ export async function saveToDrive(
   if (fileId !== source.driveFileId) set.driveFileId = fileId;
   if (Object.keys(set).length) await d.sources.updateOne({ _id: source._id }, { $set: set });
 
-  const before = await d.snapshots.findOneAndReplace(
-    { sourceId: source._id },
-    { sourceId: source._id, fetchedAt, sizeBytes, storage: "drive", driveFileId: fileId! },
-    { upsert: true, projection: { storage: 1 }, returnDocument: "before" },
-  );
-  if (before?.storage === "chunked") await d.chunks.deleteMany({ sourceId: source._id });
+  // In Drive mode the source document alone describes the data (driveFileId, lastSuccessAt,
+  // lastSizeBytes), so any snapshot copy left in MongoDB from before is redundant — remove it.
+  const old = await d.snapshots.findOneAndDelete({ sourceId: source._id }, { projection: { storage: 1 } });
+  if (old?.storage === "chunked") await d.chunks.deleteMany({ sourceId: source._id });
   return { storage: "drive", changed };
+}
+
+/** Reads a Drive-mode source's JSON straight from Drive, using only fields of the source document. */
+export async function loadFromDrive(env: Env, d: Database, source: Pick<SourceDoc, "_id" | "driveFileId" | "lastSuccessAt" | "lastSizeBytes">): Promise<LoadedSnapshot> {
+  let text: string;
+  try {
+    text = await readJsonFile(env, source.driveFileId!);
+  } catch (err) {
+    // File deleted in Drive: forget the hash so the next refresh uploads it again.
+    if (err instanceof DriveNotFound) await d.sources.updateOne({ _id: source._id }, { $unset: { driveContentHash: 1 } });
+    throw err;
+  }
+  let parsed: unknown;
+  return { fetchedAt: source.lastSuccessAt ?? new Date(), sizeBytes: source.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
 }
 
 async function sha256Hex(text: string): Promise<string> {

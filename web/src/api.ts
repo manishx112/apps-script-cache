@@ -62,6 +62,23 @@ export interface FetchLog {
   error: string | null;
 }
 
+export interface DataReport {
+  dataSizeBytes: number;
+  storageSizeBytes: number;
+  indexSizeBytes: number;
+  quotaBytes: number;
+  collections: { name: string; documents: number; kind: "app" | "leftover" | "other" }[];
+  issues: {
+    orphanSnapshots: number;
+    orphanChunks: number;
+    orphanLogs: number;
+    redundantSnapshots: number;
+    staleChunks: number;
+    leftoverCollections: string[];
+  };
+  totalIssues: number;
+}
+
 export const INTERVALS = [5, 10, 15, 30, 60];
 
 // Same rule as the Worker (worker/src/fetcher.ts).
@@ -107,6 +124,8 @@ export const api = {
   testUrl: (scriptUrl: string) => request<TestResult>("POST", "/api/sources/test", { scriptUrl }),
   refresh: (id: string) => request<{ result: RefreshResult; source: Source }>("POST", `/api/sources/${id}/refresh`),
   rotateToken: (id: string) => request<{ source: Source }>("POST", `/api/sources/${id}/rotate-token`),
+  dataReport: () => request<{ report: DataReport }>("GET", "/api/maintenance"),
+  cleanUp: () => request<{ removed: Record<string, number>; droppedCollections: string[]; report: DataReport }>("POST", "/api/maintenance/cleanup"),
   logs: (id: string) => request<{ logs: FetchLog[] }>("GET", `/api/sources/${id}/logs`),
 };
 
