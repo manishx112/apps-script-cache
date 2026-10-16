@@ -20,6 +20,15 @@ export function fileUrl(fileId: string): string {
   return `https://drive.google.com/file/d/${fileId}/view`;
 }
 
+/** Drive folder name for a source, e.g. "Sales dashboard". */
+export function folderName(sourceName: string): string {
+  return sourceName.replace(/[\\/:*?"<>|]+/g, "-").trim() || "source";
+}
+
+export function folderUrl(folderId: string): string {
+  return `https://drive.google.com/drive/folders/${folderId}`;
+}
+
 /** Drive file name for a source, e.g. "Sales dashboard.json". */
 export function jsonFileName(sourceName: string): string {
   return `${sourceName.replace(/[\\/:*?"<>|]+/g, "-").trim() || "source"}.json`;
@@ -126,6 +135,11 @@ export async function readJsonFile(env: Env, fileId: string): Promise<string> {
 
 export async function renameItem(env: Env, id: string, name: string): Promise<void> {
   await call(env, `${FILES}/${id}?fields=id`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) }, "rename");
+}
+
+/** Moves a file/folder from one parent folder to another (keeps its id). */
+export async function moveItem(env: Env, id: string, toFolder: string, fromFolder: string): Promise<void> {
+  await call(env, `${FILES}/${id}?addParents=${toFolder}&removeParents=${fromFolder}&fields=id`, { method: "PATCH", headers: { "content-type": "application/json" }, body: "{}" }, "move");
 }
 
 /** Moves to Drive's trash (recoverable for 30 days) rather than deleting permanently. */

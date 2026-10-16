@@ -1,13 +1,15 @@
 # Store JSON in Google Drive (free 15 GB, no card)
 
-After this setup, every source's latest JSON is saved as a file in one Drive folder:
+After this setup, every source gets its own folder with exactly one JSON file. Each refresh **overwrites that
+same file** (same file id), so old copies never pile up — and if the data has not changed, nothing is uploaded at all.
 
 ```
 My Drive
-└─ Apps Script Cache            ← created automatically
-   ├─ Sales dashboard.json
-   ├─ Inventory by warehouse.json
-   └─ HR attendance.json
+└─ Apps Script Cache                          ← created automatically
+   ├─ Packing performance dashboard
+   │  └─ Packing performance dashboard.json
+   └─ Sales dashboard
+      └─ Sales dashboard.json
 ```
 
 MongoDB keeps only the source list, status, logs and each file's Drive id, so it stays small.
@@ -77,9 +79,9 @@ Other sources move to Drive on their next scheduled refresh.
 | Question | Answer |
 |---|---|
 | Speed? | Reading from Drive takes ~0.5–1.5 s, but links are cached for 60 s, so most calls stay instant. |
-| Rename a source? | Its Drive file is renamed too. |
-| Delete a source? | Its Drive file goes to Drive's **Trash** (recoverable for 30 days). |
-| Deleted a file in Drive by mistake? | The next refresh creates it again. |
+| Rename a source? | Its Drive folder and file are renamed too. |
+| Delete a source? | Its Drive folder goes to Drive's **Trash** (recoverable for 30 days). |
+| Deleted a file or folder in Drive by mistake? | The next refresh creates it again. |
 | "Google sign-in failed … invalid_grant" in the logs? | Access was removed or expired → run `npm run google:connect` again. |
 | Turn Drive off? | Cloudflare → Settings → Variables and Secrets → delete `GOOGLE_REFRESH_TOKEN`. Data goes back to MongoDB on the next refresh. |
 | Later move to Cloudflare R2? | Only `worker/src/drive.ts` needs an R2 version; links and the dashboard stay the same. |

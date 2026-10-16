@@ -20,6 +20,10 @@ export interface SourceDoc {
   createdAt: Date;
   /** Google Drive file holding the latest JSON (Drive mode only). */
   driveFileId?: string | null;
+  /** Google Drive folder for this source (inside the root "Apps Script Cache" folder). */
+  driveFolderId?: string | null;
+  /** SHA-256 of the last uploaded JSON; an identical response skips the upload. */
+  driveContentHash?: string | null;
   /** Refresh only on these days/hours; null or missing = around the clock. */
   schedule?: Schedule | null;
 }

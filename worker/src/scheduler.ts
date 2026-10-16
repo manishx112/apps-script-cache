@@ -27,7 +27,7 @@ export async function runScheduler(env: Env, scheduledTime: number): Promise<voi
     const active = await d.sources
       .find(
         { status: "active" },
-        { projection: { _id: 1, scriptUrl: 1, token: 1, name: 1, driveFileId: 1, lastFetchedAt: 1, intervalMin: 1, schedule: 1 }, sort: { lastFetchedAt: 1 } },
+        { projection: { _id: 1, scriptUrl: 1, token: 1, name: 1, driveFileId: 1, driveFolderId: 1, driveContentHash: 1, lastFetchedAt: 1, intervalMin: 1, schedule: 1 }, sort: { lastFetchedAt: 1 } },
       )
       .toArray();
     const intervalDue = (s: (typeof active)[number]) => (s.lastFetchedAt ? s.lastFetchedAt.getTime() + s.intervalMin * 60_000 - EARLY_MS : 0);

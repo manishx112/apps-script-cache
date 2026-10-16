@@ -1,6 +1,6 @@
 import { BSON, type ObjectId } from "mongodb";
 import type { Database, SnapshotDoc, SourceDoc } from "./db";
-import { jsonFileName, readJsonFile, writeJsonFile } from "./drive";
+import { createFolder, DriveNotFound, folderName, jsonFileName, moveItem, readJsonFile, writeJsonFile } from "./drive";
 
 // MongoDB documents max out at 16 MB of BSON. BSON can be several times larger than the JSON text
 // (array indexes become keys), so: small responses are always stored parsed; larger ones are measured;
@@ -38,19 +38,67 @@ export async function saveSnapshot(d: Database, sourceId: ObjectId, fetchedAt: D
 }
 
 /**
- * Google Drive mode: the JSON goes to "<source name>.json" in the Drive folder; MongoDB keeps only
- * the file id (sources.driveFileId and snapshots.driveFileId).
+ * Google Drive mode. Layout: <root>/<source name>/<source name>.json — one folder and one file per
+ * source; every refresh overwrites that same file (same file id), so old copies never pile up.
+ * If the JSON is byte-for-byte unchanged since the last upload, the upload is skipped.
  */
-export async function saveToDrive(env: Env, d: Database, source: Pick<SourceDoc, "_id" | "name" | "driveFileId">, fetchedAt: Date, text: string, sizeBytes: number): Promise<"drive"> {
-  const fileId = await writeJsonFile(env, { fileId: source.driveFileId ?? null, folderId: env.GOOGLE_DRIVE_FOLDER_ID!.trim(), name: jsonFileName(source.name), text, sizeBytes });
-  if (fileId !== source.driveFileId) await d.sources.updateOne({ _id: source._id }, { $set: { driveFileId: fileId } });
+export async function saveToDrive(
+  env: Env,
+  d: Database,
+  source: Pick<SourceDoc, "_id" | "name" | "driveFileId" | "driveFolderId" | "driveContentHash">,
+  fetchedAt: Date,
+  text: string,
+  sizeBytes: number,
+): Promise<{ storage: "drive"; changed: boolean }> {
+  const root = env.GOOGLE_DRIVE_FOLDER_ID!.trim();
+  const hash = await sha256Hex(text);
+  const set: Partial<SourceDoc> = {};
+  let folderId = source.driveFolderId ?? null;
+  let fileId = source.driveFileId ?? null;
+
+  if (!folderId) {
+    folderId = await createFolder(env, folderName(source.name), root);
+    set.driveFolderId = folderId;
+    // Sources saved before per-source folders existed: move their file into the new folder.
+    if (fileId) {
+      try {
+        await moveItem(env, fileId, folderId, root);
+      } catch (err) {
+        if (!(err instanceof DriveNotFound)) throw err;
+        fileId = null;
+      }
+    }
+  }
+
+  const changed = !fileId || hash !== source.driveContentHash;
+  if (changed) {
+    const write = (folder: string, existing: string | null) => writeJsonFile(env, { fileId: existing, folderId: folder, name: jsonFileName(source.name), text, sizeBytes });
+    try {
+      fileId = await write(folderId, fileId);
+    } catch (err) {
+      if (!(err instanceof DriveNotFound)) throw err;
+      // The source's folder was deleted in Drive: recreate it.
+      folderId = await createFolder(env, folderName(source.name), root);
+      set.driveFolderId = folderId;
+      fileId = await write(folderId, null);
+    }
+    set.driveContentHash = hash;
+  }
+  if (fileId !== source.driveFileId) set.driveFileId = fileId;
+  if (Object.keys(set).length) await d.sources.updateOne({ _id: source._id }, { $set: set });
+
   const before = await d.snapshots.findOneAndReplace(
     { sourceId: source._id },
-    { sourceId: source._id, fetchedAt, sizeBytes, storage: "drive", driveFileId: fileId },
+    { sourceId: source._id, fetchedAt, sizeBytes, storage: "drive", driveFileId: fileId! },
     { upsert: true, projection: { storage: 1 }, returnDocument: "before" },
   );
   if (before?.storage === "chunked") await d.chunks.deleteMany({ sourceId: source._id });
-  return "drive";
+  return { storage: "drive", changed };
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export interface LoadedSnapshot {
@@ -66,7 +114,14 @@ export async function loadSnapshot(env: Env, d: Database, sourceId: ObjectId): P
   const snap = await d.snapshots.findOne({ sourceId });
   if (!snap) return null;
   if (snap.storage === "drive") {
-    const text = await readJsonFile(env, snap.driveFileId!);
+    let text: string;
+    try {
+      text = await readJsonFile(env, snap.driveFileId!);
+    } catch (err) {
+      // File deleted in Drive: forget the hash so the next refresh uploads it again.
+      if (err instanceof DriveNotFound) await d.sources.updateOne({ _id: sourceId }, { $unset: { driveContentHash: 1 } });
+      throw err;
+    }
     let parsed: unknown;
     return { fetchedAt: snap.fetchedAt, sizeBytes: snap.sizeBytes, text, data: () => (parsed ??= JSON.parse(text)) };
   }

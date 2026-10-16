@@ -24,6 +24,8 @@ export interface Source {
   createdAt: string;
   /** Link to the JSON file in Google Drive (Drive storage only). */
   driveFileUrl: string | null;
+  /** Link to this source’s folder in Google Drive. */
+  driveFolderUrl: string | null;
   /** null = refresh around the clock */
   schedule: Schedule | null;
   /** e.g. "Mon–Sat · 10:00–18:00" */

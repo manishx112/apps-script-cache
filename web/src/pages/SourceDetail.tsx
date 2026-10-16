@@ -113,14 +113,14 @@ export default function SourceDetail() {
               </a>
             </div>
           </div>
-          {source.driveFileUrl && (
+          {(source.driveFolderUrl || source.driveFileUrl) && (
             <a
-              href={source.driveFileUrl}
+              href={(source.driveFolderUrl ?? source.driveFileUrl)!}
               target="_blank"
               rel="noreferrer"
               className="btn mt-4 bg-white/10 text-sm text-white ring-1 ring-white/15 hover:bg-white/20"
             >
-              <FolderOpen className="size-4" /> Open JSON file in Google Drive
+              <FolderOpen className="size-4" /> {source.driveFolderUrl ? "Open folder in Google Drive" : "Open JSON file in Google Drive"}
             </a>
           )}
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
