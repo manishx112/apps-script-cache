@@ -70,7 +70,7 @@ function RequireAuth() {
         <Outlet />
       </main>
       <footer className="mx-auto max-w-6xl px-4 pb-8 text-center text-xs text-slate-400 sm:px-6">
-        Apps Script Cache · served from the Cloudflare edge · data in MongoDB Atlas
+        Apps Script Cache · served from the Cloudflare edge · data in Cloudflare D1 + Google Drive
       </footer>
     </div>
   );

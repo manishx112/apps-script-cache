@@ -1,10 +1,9 @@
 // GET /d/:token, /d/:token?format=csv and /d/:token/meta — public, read-only, cached.
 //
-// Two cache layers keep dashboards away from MongoDB:
-//  1. caches.default (Cloudflare edge cache; active on custom domains — a no-op on *.workers.dev)
-//  2. a small in-memory map in the running isolate (helps everywhere, including workers.dev)
+// Layers, fastest first: in-memory map in the running isolate → Cloudflare edge cache (caches.default)
+// → KV link card + Google Drive (Drive mode) → D1.
 
-import { type Database, TOKEN_RE, withDb } from "./db";
+import { findSourceByToken, TOKEN_RE } from "./db";
 import { errorJson, HttpError, intVar, redact } from "./http";
 import { toCsv } from "./shape";
 import { driveEnabled, DriveNotFound, fileModifiedAt, readJsonFile } from "./drive";
@@ -94,10 +93,10 @@ export async function handlePublic(req: Request, env: Env, ctx: ExecutionContext
     return respond(c, "edge", req.method);
   }
 
-  // Miss: the link card in KV (Drive mode) avoids MongoDB entirely; otherwise read MongoDB.
+  // Miss: the link card in KV (Drive mode) avoids the database entirely; otherwise read D1.
   let c: Cached;
   try {
-    c = (await fromCard(env, ctx, url.origin, token, variant, ttlMs)) ?? (await withDb(env, ctx, (d) => build(env, ctx, d, url.origin, token, variant, ttlMs)));
+    c = (await fromCard(env, ctx, url.origin, token, variant, ttlMs)) ?? (await build(env, ctx, url.origin, token, variant, ttlMs));
   } catch (err) {
     if (err instanceof HttpError) {
       c = { status: err.status, body: JSON.stringify({ error: err.message }), contentType: "application/json; charset=utf-8", fetchedAt: null, expires: Date.now() + (err.status === 404 ? ttlMs : 10_000) };
@@ -121,7 +120,7 @@ function remember(key: string, c: Cached): void {
   memory.set(key, c);
 }
 
-/** What a public read shows about a source — from MongoDB or from its KV link card. */
+/** What a public read shows about a source — from D1 or from its KV link card. */
 interface SourceView {
   name: string;
   status: string;
@@ -162,7 +161,7 @@ async function render(view: SourceView, origin: string, token: string, variant: 
   return { status: 200, body: snap.text, contentType: "application/json; charset=utf-8", fetchedAt, expires };
 }
 
-/** Serve from the KV link card + Google Drive, without MongoDB. null = no usable card. */
+/** Serve from the KV link card + Google Drive, without the database. null = no usable card. */
 async function fromCard(env: Env, ctx: ExecutionContext, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached | null> {
   const card = await getCard(env, token);
   if (!card) return null;
@@ -178,7 +177,7 @@ async function fromCard(env: Env, ctx: ExecutionContext, origin: string, token: 
       return { fetchedAt: lastSuccess, sizeBytes: card.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
     });
   } catch (err) {
-    // Drive file gone: drop the card and let the MongoDB path repair things.
+    // Drive file gone: drop the card and let the database path repair things.
     if (err instanceof DriveNotFound) {
       ctx.waitUntil(deleteCard(env, token));
       return null;
@@ -187,11 +186,11 @@ async function fromCard(env: Env, ctx: ExecutionContext, origin: string, token: 
   }
 }
 
-async function build(env: Env, ctx: ExecutionContext, d: Database, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached> {
-  const source = await d.sources.findOne({ token });
+async function build(env: Env, ctx: ExecutionContext, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached> {
+  const source = await findSourceByToken(env, token);
   if (!source) throw new HttpError(404, "Unknown link.");
   const drive = !!source.driveFileId && driveEnabled(env);
-  // Warm the link card so the next miss skips MongoDB.
+  // Warm the link card so the next miss skips the database.
   if (drive) ctx.waitUntil(putCard(env, source));
-  return render(source, origin, token, variant, ttlMs, () => (drive ? loadFromDrive(env, d, source) : loadSnapshot(env, d, source._id)));
+  return render(source, origin, token, variant, ttlMs, () => (drive ? loadFromDrive(env, source) : loadSnapshot(env, source.id)));
 }

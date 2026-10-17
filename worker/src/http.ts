@@ -17,11 +17,13 @@ export function errorJson(status: number, message: string, headers?: HeadersInit
   return json({ error: message }, { status, headers });
 }
 
-/** Removes the connection string (and any user:pass@) from text that may be shown or logged. */
+/** Removes secrets (and any user:pass@ in URLs) from text that may be shown or logged. */
 export function redact(text: string, env: Env): string {
   let out = text;
-  const uri = env.MONGODB_URI?.trim();
-  if (uri) out = out.split(uri).join("[MONGODB_URI]");
+  for (const secret of [env.ADMIN_KEY, env.SESSION_SECRET, env.GOOGLE_CLIENT_SECRET, env.GOOGLE_REFRESH_TOKEN]) {
+    const v = secret?.trim();
+    if (v && v.length >= 8) out = out.split(v).join("[secret]");
+  }
   return out.replace(/\/\/[^/@\s]+@/g, "//[credentials]@");
 }
 

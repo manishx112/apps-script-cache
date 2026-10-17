@@ -2,7 +2,7 @@
   "name": "apps-script-cache",
   "version": "1.0.0",
   "private": true,
-  "description": "Caches slow Google Apps Script /exec responses in MongoDB and serves them instantly from a Cloudflare Worker.",
+  "description": "Caches slow Google Apps Script /exec responses and serves them instantly from a Cloudflare Worker (D1 + Google Drive).",
   "type": "module",
   "workspaces": [
     "web"
@@ -17,16 +17,14 @@
     "typecheck": "tsc -p worker/tsconfig.json",
     "deploy": "npm run build && wrangler deploy",
     "tail": "wrangler tail",
-    "secret:mongodb": "node scripts/set-secret.mjs mongodb",
     "secret:admin-key": "node scripts/set-secret.mjs admin-key",
-    "secret:session": "node scripts/set-secret.mjs session"
-  },
-  "dependencies": {
-    "mongodb": "^7.7.0"
+    "secret:session": "node scripts/set-secret.mjs session",
+    "migrate:mongodb": "node scripts/migrate-from-mongodb.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
     "concurrently": "^9.2.5",
+    "mongodb": "^7.7.0",
     "typescript": "^7.0.2",
     "wrangler": "^4.151.0"
   }

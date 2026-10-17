@@ -63,18 +63,16 @@ export interface FetchLog {
 }
 
 export interface DataReport {
-  dataSizeBytes: number;
-  storageSizeBytes: number;
-  indexSizeBytes: number;
+  sizeBytes: number;
   quotaBytes: number;
-  collections: { name: string; documents: number; kind: "app" | "leftover" | "other" }[];
+  tables: { name: string; rows: number }[];
   issues: {
     orphanSnapshots: number;
     orphanChunks: number;
     orphanLogs: number;
     redundantSnapshots: number;
     staleChunks: number;
-    leftoverCollections: string[];
+    expiredLogs: number;
   };
   totalIssues: number;
 }
@@ -125,7 +123,7 @@ export const api = {
   refresh: (id: string) => request<{ result: RefreshResult; source: Source }>("POST", `/api/sources/${id}/refresh`),
   rotateToken: (id: string) => request<{ source: Source }>("POST", `/api/sources/${id}/rotate-token`),
   dataReport: () => request<{ report: DataReport }>("GET", "/api/maintenance"),
-  cleanUp: () => request<{ removed: Record<string, number>; droppedCollections: string[]; report: DataReport }>("POST", "/api/maintenance/cleanup"),
+  cleanUp: () => request<{ removed: Record<string, number>; report: DataReport }>("POST", "/api/maintenance/cleanup"),
   logs: (id: string) => request<{ logs: FetchLog[] }>("GET", `/api/sources/${id}/logs`),
 };
 

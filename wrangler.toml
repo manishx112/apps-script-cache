@@ -4,6 +4,12 @@ account_id = "60e5ea1d70c465557f4dfbff064ca78d"
 compatibility_date = "2026-09-15"
 compatibility_flags = ["nodejs_compat"]
 
+# worker/src/schema.sql is bundled as a plain string.
+[[rules]]
+type = "Text"
+globs = ["**/*.sql"]
+fallthrough = true
+
 # The React app (built by `npm run build:web`) is served from the same Worker.
 # /api/* and /d/* run the Worker first; every other path is a static file, with
 # index.html as the fallback so client-side routes survive a page refresh.
@@ -17,7 +23,7 @@ run_worker_first = ["/api/*", "/d/*"]
 [triggers]
 crons = ["* * * * *"]
 
-# Non-secret tuning knobs. Secrets (MONGODB_URI, ADMIN_KEY, SESSION_SECRET) are set with
+# Non-secret tuning knobs. Secrets (ADMIN_KEY, SESSION_SECRET, GOOGLE_*) are set with
 # `npm run secret:*` / `wrangler secret put` and never live in this file.
 [vars]
 # Some Apps Scripts take 30+ s; wait up to 60 s before marking a fetch as failed.
@@ -25,11 +31,18 @@ FETCH_TIMEOUT_MS = "60000"
 # Free plan allows 50 subrequests per invocation; each source uses ~2 for Apps Script (302 redirect)
 # plus 1–2 for the Google Drive upload.
 MAX_SOURCES_PER_RUN = "8"
-# Workers allow 6 simultaneous connections per invocation; MongoDB keeps ~4 open.
+# Apps Script fetches running at the same time (Workers allow 6 open connections).
 FETCH_CONCURRENCY = "2"
 PUBLIC_CACHE_TTL_SECONDS = "60"
 
-# Tiny global note: when the cron next has work to do. Lets off-hours wake-ups skip MongoDB.
+# Sources, status and fetch logs (Cloudflare D1 / SQLite). Tables are created on first use.
+[[d1_databases]]
+binding = "DB"
+database_name = "cache-proxy"
+database_id = "6d74fff5-6464-449b-9d16-093fc140c49a"
+
+# Tiny global note: when the cron next has work to do (lets idle wake-ups skip the database),
+# plus one "link card" per public link.
 [[kv_namespaces]]
 binding = "SCHEDULER"
 id = "057742f8123c46a79712c4c62971fc1c"

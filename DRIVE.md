@@ -12,7 +12,7 @@ My Drive
       └─ Sales dashboard.json
 ```
 
-MongoDB keeps only the source list, status, logs and each file's Drive id, so it stays small.
+The D1 database keeps only the source list, status, logs and each file's Drive id, so it stays small.
 Your links (`/d/<token>`) don't change — the Worker reads the file from Drive and returns it as JSON.
 
 > The app can only see files **it created** (Google scope `drive.file`), never the rest of your Drive.
@@ -83,5 +83,5 @@ Other sources move to Drive on their next scheduled refresh.
 | Delete a source? | Its Drive folder goes to Drive's **Trash** (recoverable for 30 days). |
 | Deleted a file or folder in Drive by mistake? | The next refresh creates it again. |
 | "Google sign-in failed … invalid_grant" in the logs? | Access was removed or expired → run `npm run google:connect` again. |
-| Turn Drive off? | Cloudflare → Settings → Variables and Secrets → delete `GOOGLE_REFRESH_TOKEN`. Data goes back to MongoDB on the next refresh. |
+| Turn Drive off? | Cloudflare → Settings → Variables and Secrets → delete `GOOGLE_REFRESH_TOKEN`. Data goes back to D1 on the next refresh. |
 | Later move to Cloudflare R2? | Only `worker/src/drive.ts` needs an R2 version; links and the dashboard stay the same. |

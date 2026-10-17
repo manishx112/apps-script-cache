@@ -5,15 +5,16 @@ import { api, ApiError, type DataReport } from "../api";
 import { formatBytes } from "../lib/format";
 import { Spinner, useConfirm } from "./ui";
 
-const ISSUE_LABELS: [keyof Omit<DataReport["issues"], "leftoverCollections">, string][] = [
+const ISSUE_LABELS: [keyof DataReport["issues"], string][] = [
   ["redundantSnapshots", "Old snapshot copies of sources now stored in Google Drive"],
   ["orphanSnapshots", "Snapshots of deleted sources"],
   ["orphanLogs", "Fetch logs of deleted sources"],
   ["orphanChunks", "Data pieces of deleted sources"],
-  ["staleChunks", "Outdated data pieces of large responses"],
+  ["staleChunks", "Outdated data pieces"],
+  ["expiredLogs", "Fetch logs older than 7 days"],
 ];
 
-/** Dashboard card: MongoDB usage, redundant/orphaned data, one-click cleanup. Loads only on demand. */
+/** Dashboard card: D1 usage, redundant/orphaned data, one-click cleanup. Loads only on demand. */
 export default function DataHealth() {
   const [report, setReport] = useState<DataReport | null>(null);
   const [busy, setBusy] = useState<"check" | "clean" | null>(null);
@@ -34,7 +35,7 @@ export default function DataHealth() {
     if (!report) return;
     const ok = await confirm({
       title: "Clean up the database?",
-      body: "Removes only redundant or orphaned data created by this app (listed in the card) and the leftover setup collections. Your sources, their links and the current data are not touched.",
+      body: "Removes only redundant or orphaned rows created by this app (listed in the card). Your sources, their links and the current data are not touched.",
       confirmLabel: "Clean up",
     });
     if (!ok) return;
@@ -43,7 +44,7 @@ export default function DataHealth() {
       const r = await api.cleanUp();
       setReport(r.report);
       const removed = Object.values(r.removed).reduce((a, b) => a + b, 0);
-      toast.success(`Removed ${removed.toLocaleString()} document${removed === 1 ? "" : "s"}${r.droppedCollections.length ? ` and ${r.droppedCollections.length} unused collection(s)` : ""}.`);
+      toast.success(`Removed ${removed.toLocaleString()} row${removed === 1 ? "" : "s"}.`);
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Cleanup failed.");
     } finally {
@@ -51,7 +52,7 @@ export default function DataHealth() {
     }
   }
 
-  const used = report ? report.storageSizeBytes + report.indexSizeBytes : 0;
+  const used = report?.sizeBytes ?? 0;
   const pct = report ? Math.min(100, (used / report.quotaBytes) * 100) : 0;
 
   return (
@@ -64,7 +65,7 @@ export default function DataHealth() {
           </div>
           <div>
             <h2 className="font-semibold text-slate-900">Database health</h2>
-            <p className="text-sm text-slate-500">MongoDB usage, redundant and leftover data.</p>
+            <p className="text-sm text-slate-500">Cloudflare D1 usage, redundant and leftover data.</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -109,14 +110,6 @@ export default function DataHealth() {
                     <b>{report.issues[k].toLocaleString()}</b>
                   </li>
                 ))}
-                {report.issues.leftoverCollections.map((c) => (
-                  <li key={c} className="flex justify-between gap-4">
-                    <span>
-                      Unused setup collection <code>{c}</code>
-                    </span>
-                    <b>drop</b>
-                  </li>
-                ))}
               </ul>
             </div>
           )}
@@ -125,25 +118,21 @@ export default function DataHealth() {
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
                 <tr>
-                  <th className="px-4 py-2">Collection</th>
-                  <th className="px-4 py-2 text-right">Documents</th>
+                  <th className="px-4 py-2">Table</th>
+                  <th className="px-4 py-2 text-right">Rows</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {report.collections.map((c) => (
-                  <tr key={c.name}>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-700">
-                      {c.name}
-                      {c.kind === "leftover" && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 font-sans text-[10px] text-amber-800">unused</span>}
-                      {c.kind === "other" && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 font-sans text-[10px] text-slate-600">not from this app</span>}
-                    </td>
-                    <td className="px-4 py-2 text-right text-slate-600">{c.documents.toLocaleString()}</td>
+                {report.tables.map((t) => (
+                  <tr key={t.name}>
+                    <td className="px-4 py-2 font-mono text-xs text-slate-700">{t.name}</td>
+                    <td className="px-4 py-2 text-right text-slate-600">{t.rows.toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-400">Fetch logs delete themselves after 7 days. Collections marked “not from this app” are never touched.</p>
+          <p className="text-xs text-slate-400">Fetch logs older than 7 days are deleted automatically by the cron.</p>
         </div>
       )}
     </section>

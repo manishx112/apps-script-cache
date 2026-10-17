@@ -164,7 +164,7 @@ export default function SourceDetail() {
           icon={HardDrive}
           label="Response size"
           value={formatBytes(source.lastSizeBytes)}
-          hint={(source.lastSizeBytes ?? 0) > 5 * 1024 * 1024 ? "⚠️ Over 5 MB" : source.driveFileUrl ? "Stored in Google Drive" : "Stored in MongoDB"}
+          hint={(source.lastSizeBytes ?? 0) > 5 * 1024 * 1024 ? "⚠️ Over 5 MB" : source.driveFileUrl ? "Stored in Google Drive" : "Stored in Cloudflare D1"}
         />
       </section>
 

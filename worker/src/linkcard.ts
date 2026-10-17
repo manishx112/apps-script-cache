@@ -1,6 +1,6 @@
 // "Link cards": a small KV entry per public link (Drive-mode sources) holding everything a
 // public read needs — the Drive file id plus the fields shown by /meta. On a cache miss the
-// Worker reads the card and then Drive, without opening a MongoDB connection.
+// Worker reads the card and then Drive, without touching the database.
 //
 // KV free tier: 1,000 writes/day. The Drive file id does not change when new data is uploaded,
 // so cards are rewritten only for a new file, an error appearing or clearing, an edit, or every
@@ -26,13 +26,13 @@ export const CARD_MAX_AGE_MS = 2 * 60 * 60_000;
 const key = (token: string) => `link:${token}`;
 const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString() : null);
 
-type CardSource = Pick<SourceDoc, "_id" | "token" | "name" | "status" | "intervalMin" | "driveFileId" | "lastFetchedAt" | "lastSuccessAt" | "lastError" | "lastDurationMs" | "lastSizeBytes">;
+type CardSource = Pick<SourceDoc, "id" | "token" | "name" | "status" | "intervalMin" | "driveFileId" | "lastFetchedAt" | "lastSuccessAt" | "lastError" | "lastDurationMs" | "lastSizeBytes">;
 
 /** Writes (or replaces) the card. No-op unless Drive mode is on and the source has a Drive file. */
 export async function putCard(env: Env, s: CardSource): Promise<boolean> {
   if (!driveEnabled(env) || !s.driveFileId) return false;
   const card: LinkCard = {
-    sourceId: s._id.toHexString(),
+    sourceId: s.id,
     name: s.name,
     status: s.status,
     intervalMin: s.intervalMin,

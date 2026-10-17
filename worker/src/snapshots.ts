@@ -1,40 +1,24 @@
-import { BSON, type ObjectId } from "mongodb";
-import type { Database, SnapshotDoc, SourceDoc } from "./db";
+import { db, type SourceDoc, updateSource } from "./db";
 import { createFolder, DriveNotFound, folderName, jsonFileName, moveItem, readJsonFile, writeJsonFile } from "./drive";
 
-// MongoDB documents max out at 16 MB of BSON. BSON can be several times larger than the JSON text
-// (array indexes become keys), so: small responses are always stored parsed; larger ones are measured;
-// anything that would not fit is stored as raw JSON text split over `snapshot_chunks`.
-const ALWAYS_INLINE_BYTES = 1_500_000;
-const MAX_INLINE_BSON_BYTES = 15_500_000;
-const CHUNK_CHARS = 3_000_000; // ≤ 12 MB of UTF-8 even if every char is 4 bytes
+// Without Google Drive the JSON text is kept in D1, split into chunks: a D1 row may hold at most
+// 2 MB, and 500k characters stay under that even if every character takes 4 bytes in UTF-8.
+const CHUNK_CHARS = 500_000;
 
-export async function saveSnapshot(d: Database, sourceId: ObjectId, fetchedAt: Date, text: string, data: unknown, sizeBytes: number): Promise<"inline" | "chunked"> {
-  const inline = sizeBytes <= ALWAYS_INLINE_BYTES || BSON.calculateObjectSize({ data }) <= MAX_INLINE_BSON_BYTES;
-
-  if (inline) {
-    const before = await d.snapshots.findOneAndReplace(
-      { sourceId },
-      { sourceId, fetchedAt, sizeBytes, storage: "inline", data },
-      { upsert: true, projection: { storage: 1 }, returnDocument: "before" },
-    );
-    if (before?.storage === "chunked") await d.chunks.deleteMany({ sourceId });
-    return "inline";
-  }
-
-  // Write the new chunks first, then point the snapshot at them, then drop the old version:
-  // readers always see one complete version.
+export async function saveSnapshot(env: Env, sourceId: string, fetchedAt: Date, text: string, sizeBytes: number): Promise<"d1"> {
+  const d = await db(env);
   const version = crypto.randomUUID();
-  const docs = [];
-  for (let i = 0, n = 0; i < text.length; i += CHUNK_CHARS, n++) docs.push({ sourceId, version, n, text: text.slice(i, i + CHUNK_CHARS) });
-  await d.chunks.insertMany(docs, { ordered: true });
-  await d.snapshots.replaceOne(
-    { sourceId },
-    { sourceId, fetchedAt, sizeBytes, storage: "chunked", chunkVersion: version, chunkCount: docs.length },
-    { upsert: true },
-  );
-  await d.chunks.deleteMany({ sourceId, version: { $ne: version } });
-  return "chunked";
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += CHUNK_CHARS) chunks.push(text.slice(i, i + CHUNK_CHARS));
+  // One transaction: the new chunks, the pointer to them, and removal of the old version.
+  await d.batch([
+    ...chunks.map((t, n) => d.prepare("INSERT INTO snapshot_chunks (sourceId, version, n, text) VALUES (?, ?, ?, ?)").bind(sourceId, version, n, t)),
+    d
+      .prepare("INSERT OR REPLACE INTO snapshots (sourceId, fetchedAt, sizeBytes, chunkVersion, chunkCount) VALUES (?, ?, ?, ?, ?)")
+      .bind(sourceId, fetchedAt.getTime(), sizeBytes, version, chunks.length),
+    d.prepare("DELETE FROM snapshot_chunks WHERE sourceId = ? AND version <> ?").bind(sourceId, version),
+  ]);
+  return "d1";
 }
 
 /**
@@ -44,8 +28,7 @@ export async function saveSnapshot(d: Database, sourceId: ObjectId, fetchedAt: D
  */
 export async function saveToDrive(
   env: Env,
-  d: Database,
-  source: Pick<SourceDoc, "_id" | "name" | "driveFileId" | "driveFolderId" | "driveContentHash">,
+  source: Pick<SourceDoc, "id" | "name" | "driveFileId" | "driveFolderId" | "driveContentHash">,
   text: string,
   sizeBytes: number,
   hash: string,
@@ -84,61 +67,52 @@ export async function saveToDrive(
     set.driveContentHash = hash;
   }
   if (fileId !== source.driveFileId) set.driveFileId = fileId;
-  if (Object.keys(set).length) await d.sources.updateOne({ _id: source._id }, { $set: set });
-
-  // In Drive mode the source document alone describes the data (driveFileId, lastSuccessAt,
-  // lastSizeBytes), so any snapshot copy left in MongoDB from before is redundant — remove it.
-  const old = await d.snapshots.findOneAndDelete({ sourceId: source._id }, { projection: { storage: 1 } });
-  if (old?.storage === "chunked") await d.chunks.deleteMany({ sourceId: source._id });
+  if (Object.keys(set).length) await updateSource(env, source.id, set);
   return { storage: "drive", changed, fileId: fileId! };
 }
-
-/** Reads a Drive-mode source's JSON straight from Drive, using only fields of the source document. */
-export async function loadFromDrive(env: Env, d: Database, source: Pick<SourceDoc, "_id" | "driveFileId" | "lastSuccessAt" | "lastSizeBytes">): Promise<LoadedSnapshot> {
-  let text: string;
-  try {
-    text = await readJsonFile(env, source.driveFileId!);
-  } catch (err) {
-    // File deleted in Drive: forget the hash so the next refresh uploads it again.
-    if (err instanceof DriveNotFound) await d.sources.updateOne({ _id: source._id }, { $unset: { driveContentHash: 1 } });
-    throw err;
-  }
-  let parsed: unknown;
-  return { fetchedAt: source.lastSuccessAt ?? new Date(), sizeBytes: source.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
-}
-
 
 export interface LoadedSnapshot {
   fetchedAt: Date;
   sizeBytes: number;
   /** JSON text exactly as served. */
   text: string;
-  /** Parsed value (parsed lazily for chunked snapshots; only needed for CSV). */
+  /** Parsed value (parsed lazily; only needed for CSV). */
   data(): unknown;
 }
 
-export async function loadSnapshot(env: Env, d: Database, sourceId: ObjectId): Promise<LoadedSnapshot | null> {
-  const snap = await d.snapshots.findOne({ sourceId });
+function loaded(fetchedAt: Date, sizeBytes: number, text: string): LoadedSnapshot {
+  let parsed: unknown;
+  return { fetchedAt, sizeBytes, text, data: () => (parsed ??= JSON.parse(text)) };
+}
+
+/** Reads a Drive-mode source's JSON straight from Drive, using only fields of the source. */
+export async function loadFromDrive(env: Env, source: Pick<SourceDoc, "id" | "driveFileId" | "lastSuccessAt" | "lastSizeBytes">): Promise<LoadedSnapshot> {
+  let text: string;
+  try {
+    text = await readJsonFile(env, source.driveFileId!);
+  } catch (err) {
+    // File deleted in Drive: forget the hash so the next refresh uploads it again.
+    if (err instanceof DriveNotFound) await updateSource(env, source.id, { driveContentHash: null });
+    throw err;
+  }
+  return loaded(source.lastSuccessAt ?? new Date(), source.lastSizeBytes ?? text.length, text);
+}
+
+/** Reads a snapshot stored in D1 (Drive off). */
+export async function loadSnapshot(env: Env, sourceId: string): Promise<LoadedSnapshot | null> {
+  const d = await db(env);
+  const snap = await d.prepare("SELECT * FROM snapshots WHERE sourceId = ?").bind(sourceId).first<{ fetchedAt: number; sizeBytes: number; chunkVersion: string; chunkCount: number }>();
   if (!snap) return null;
-  if (snap.storage === "drive") {
-    let text: string;
-    try {
-      text = await readJsonFile(env, snap.driveFileId!);
-    } catch (err) {
-      // File deleted in Drive: forget the hash so the next refresh uploads it again.
-      if (err instanceof DriveNotFound) await d.sources.updateOne({ _id: sourceId }, { $unset: { driveContentHash: 1 } });
-      throw err;
-    }
-    let parsed: unknown;
-    return { fetchedAt: snap.fetchedAt, sizeBytes: snap.sizeBytes, text, data: () => (parsed ??= JSON.parse(text)) };
-  }
-  if (snap.storage === "chunked") {
-    const parts = await d.chunks.find({ sourceId, version: snap.chunkVersion }, { sort: { n: 1 }, projection: { text: 1 } }).toArray();
-    if (parts.length !== snap.chunkCount) throw new Error("Snapshot is incomplete (chunks missing); it will be rewritten on the next fetch.");
-    const text = parts.map((p) => p.text).join("");
-    let parsed: unknown;
-    return { fetchedAt: snap.fetchedAt, sizeBytes: snap.sizeBytes, text, data: () => (parsed ??= JSON.parse(text)) };
-  }
-  const data = (snap as SnapshotDoc).data;
-  return { fetchedAt: snap.fetchedAt, sizeBytes: snap.sizeBytes, text: JSON.stringify(data), data: () => data };
+  const { results } = await d
+    .prepare("SELECT text FROM snapshot_chunks WHERE sourceId = ? AND version = ? ORDER BY n")
+    .bind(sourceId, snap.chunkVersion)
+    .all<{ text: string }>();
+  if (results.length !== snap.chunkCount) throw new Error("Snapshot is incomplete (chunks missing); it will be rewritten on the next fetch.");
+  return loaded(new Date(snap.fetchedAt), snap.sizeBytes, results.map((p) => p.text).join(""));
+}
+
+/** Drive mode keeps no copy in D1; removes one left from before Drive was turned on. */
+export async function dropSnapshot(env: Env, sourceId: string): Promise<void> {
+  const d = await db(env);
+  await d.batch([d.prepare("DELETE FROM snapshots WHERE sourceId = ?").bind(sourceId), d.prepare("DELETE FROM snapshot_chunks WHERE sourceId = ?").bind(sourceId)]);
 }

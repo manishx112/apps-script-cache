@@ -1,4 +1,4 @@
-import type { Database, SourceDoc } from "./db";
+import { insertLog, type SourceDoc, updateSource } from "./db";
 import { driveEnabled } from "./drive";
 import { fetchScript } from "./fetcher";
 import { redact } from "./http";
@@ -11,7 +11,7 @@ export interface RefreshResult {
   durationMs: number;
   sizeBytes: number | null;
   error: string | null;
-  storage?: "inline" | "chunked" | "drive";
+  storage?: "d1" | "drive";
   /** false when the JSON was identical to the last upload (Drive write skipped) */
   changed?: boolean;
 }
@@ -20,7 +20,7 @@ export interface RefreshResult {
  * Fetches one source and records the outcome. On failure the previous snapshot is kept.
  * The caller has already set `lastFetchedAt` (the attempt time).
  */
-export async function refreshSource(env: Env, d: Database, source: SourceDoc, timeoutMs: number): Promise<RefreshResult> {
+export async function refreshSource(env: Env, source: SourceDoc, timeoutMs: number): Promise<RefreshResult> {
   const drive = driveEnabled(env);
   // In Drive mode, a response identical to the last upload is not parsed or uploaded again.
   const outcome = await fetchScript(source.scriptUrl, timeoutMs, { knownHash: drive && source.driveFileId ? source.driveContentHash : null });
@@ -32,8 +32,8 @@ export async function refreshSource(env: Env, d: Database, source: SourceDoc, ti
     try {
       let storage: RefreshResult["storage"];
       let changed = true;
-      if (drive) ({ storage, changed, fileId } = await saveToDrive(env, d, source, outcome.text, outcome.sizeBytes, outcome.hash));
-      else storage = await saveSnapshot(d, source._id, at, outcome.text, outcome.data, outcome.sizeBytes);
+      if (drive) ({ storage, changed, fileId } = await saveToDrive(env, source, outcome.text, outcome.sizeBytes, outcome.hash));
+      else storage = await saveSnapshot(env, source.id, at, outcome.text, outcome.sizeBytes);
       result = { ok: true, durationMs: outcome.durationMs, sizeBytes: outcome.sizeBytes, error: null, storage, changed };
     } catch (err) {
       result = { ok: false, durationMs: outcome.durationMs, sizeBytes: outcome.sizeBytes, error: `Could not save the data: ${redact(String((err as Error)?.message ?? err), env)}` };
@@ -54,8 +54,8 @@ export async function refreshSource(env: Env, d: Database, source: SourceDoc, ti
   if (writeCard) set.linkCardAt = at;
 
   await Promise.all([
-    d.sources.updateOne({ _id: source._id }, { $set: set }),
-    d.logs.insertOne({ sourceId: source._id, at, ok: result.ok, durationMs: result.durationMs, sizeBytes: result.sizeBytes, error: result.error }),
+    updateSource(env, source.id, set),
+    insertLog(env, source.id, { at, ok: result.ok, durationMs: result.durationMs, sizeBytes: result.sizeBytes, error: result.error }),
   ]);
   if (writeCard) await putCard(env, { ...source, ...set, driveFileId: fileId, lastFetchedAt: source.lastFetchedAt ?? at });
   if (result.ok) forgetPublic(source.token);
