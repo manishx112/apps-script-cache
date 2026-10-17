@@ -25,7 +25,7 @@ export default function Dashboard() {
       setRefreshing(false);
     }
   }, []);
-  usePolling(load, 30_000);
+  usePolling(load, 180_000);
 
   const { actions, busy, dialog } = useSourceActions((id, updated) =>
     setSources((list) => (list ? (updated ? list.map((s) => (s.id === id ? updated : s)) : list.filter((s) => s.id !== id)) : list)),
@@ -41,7 +41,7 @@ export default function Dashboard() {
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Sources</h1>
           <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
             Every Apps Script URL you cache, with its live status.
-            {refreshing && sources ? <Spinner className="size-3.5 text-slate-400" /> : <span className="text-slate-400">· auto-refresh 30 s</span>}
+            {refreshing && sources ? <Spinner className="size-3.5 text-slate-400" /> : <span className="text-slate-400">· auto-refresh 3 min</span>}
           </p>
         </div>
         <Link to="/sources/new" className="btn-primary">

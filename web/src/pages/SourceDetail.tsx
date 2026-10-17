@@ -27,7 +27,7 @@ export default function SourceDetail() {
       setError(err instanceof ApiError ? err.message : "Could not load the source.");
     }
   }, [id]);
-  usePolling(load, 30_000);
+  usePolling(load, 180_000);
 
   const { actions, busy, dialog } = useSourceActions((_, updated) => {
     if (!updated) return navigate("/");
@@ -135,7 +135,7 @@ export default function SourceDetail() {
 
       {source.health === "pending" && (
         <div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200 ring-inset">
-          <Spinner /> Waiting for the first successful fetch — this page updates every 30 s.
+          <Spinner /> Waiting for the first successful fetch — this page updates every 3 min (or click Refresh now).
         </div>
       )}
       {source.lastError && <ErrorBox message={`Last fetch failed: ${source.lastError} — the link keeps serving the last good data.`} />}
