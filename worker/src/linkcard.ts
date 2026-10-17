@@ -2,8 +2,9 @@
 // public read needs — the Drive file id plus the fields shown by /meta. On a cache miss the
 // Worker reads the card and then Drive, without opening a MongoDB connection.
 //
-// KV free tier: 1,000 writes/day, so cards are written only when something visible changes
-// (new data, an error, an edit) or at most every CARD_MAX_AGE_MS to keep "fetched at" fresh.
+// KV free tier: 1,000 writes/day. The Drive file id does not change when new data is uploaded,
+// so cards are rewritten only for a new file, an error appearing or clearing, an edit, or every
+// CARD_MAX_AGE_MS. Readers take "data updated at" from the Drive file itself (always current).
 
 import type { SourceDoc } from "./db";
 import { driveEnabled } from "./drive";
@@ -21,7 +22,7 @@ export interface LinkCard {
   lastSizeBytes: number | null;
 }
 
-export const CARD_MAX_AGE_MS = 30 * 60_000;
+export const CARD_MAX_AGE_MS = 2 * 60 * 60_000;
 const key = (token: string) => `link:${token}`;
 const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString() : null);
 

@@ -24,7 +24,10 @@ Use the link in Power BI, Excel (Power Query), Looker Studio, React — anything
 
 - **Refresh schedule per source**: around the clock, or only on chosen weekdays and hours (e.g. Mon–Sat 10:00–18:00,
   in the source's timezone). Outside the window nothing is fetched; the link keeps serving the last data.
-- **One cron (every minute)** picks active sources whose interval has elapsed, fetches them (2 at a time, max 10 per run),
+- **One cron (every minute)**. Refresh slots are aligned to the clock (a 15-min source runs at :00/:15/:30/:45),
+  so sources with the same interval refresh together. Ticks with nothing due stop after one KV read (no MongoDB);
+  public links read a small KV “link card” + Google Drive, also without MongoDB.
+  On each due slot it picks active sources whose interval has elapsed, fetches them (2 at a time, max 10 per run),
   follows the 302 to `googleusercontent.com`, validates JSON, upserts the snapshot, updates status fields and writes a log.
   On failure the last good snapshot keeps being served and the error is recorded.
 - **Public reads** check an in-memory cache, then the Cloudflare Cache API (60 s), and only then MongoDB.

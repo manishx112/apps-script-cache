@@ -46,10 +46,11 @@ export async function refreshSource(env: Env, d: Database, source: SourceDoc, ti
     ? { lastSuccessAt: at, lastError: null, lastDurationMs: result.durationMs, lastSizeBytes: result.sizeBytes }
     : { lastError: result.error, lastDurationMs: result.durationMs };
 
-  // Refresh the public link card when something a reader would notice changed, or it is getting old.
+  // Rewrite the public link card only when it would otherwise be wrong (new file, error state
+  // changed) or is getting old; new data in the same Drive file needs no card write.
   const cardAge = source.linkCardAt ? at.getTime() - new Date(source.linkCardAt).getTime() : Number.POSITIVE_INFINITY;
   const writeCard =
-    drive && !!fileId && (result.changed === true || fileId !== source.driveFileId || (source.lastError ?? null) !== (set.lastError ?? null) || cardAge > CARD_MAX_AGE_MS);
+    drive && !!fileId && (fileId !== source.driveFileId || (source.lastError ?? null) !== (set.lastError ?? null) || cardAge > CARD_MAX_AGE_MS);
   if (writeCard) set.linkCardAt = at;
 
   await Promise.all([

@@ -128,6 +128,17 @@ async function resumable(env: Env, url: string, method: "POST" | "PATCH", metada
   return call(env, location, { method: "PUT", headers: { "content-type": "application/json" }, body: text }, "upload");
 }
 
+/** When the file content last changed in Drive (uploads are skipped when data is unchanged). */
+export async function fileModifiedAt(env: Env, fileId: string): Promise<Date | null> {
+  try {
+    const res = await call(env, `${FILES}/${fileId}?fields=modifiedTime`, { method: "GET" }, "read file info");
+    const { modifiedTime } = (await res.json()) as { modifiedTime?: string };
+    return modifiedTime ? new Date(modifiedTime) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function readJsonFile(env: Env, fileId: string): Promise<string> {
   const res = await call(env, `${FILES}/${fileId}?alt=media`, { method: "GET" }, "read file");
   return res.text();

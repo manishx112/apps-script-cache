@@ -7,7 +7,7 @@
 import { type Database, TOKEN_RE, withDb } from "./db";
 import { errorJson, HttpError, intVar, redact } from "./http";
 import { toCsv } from "./shape";
-import { driveEnabled, DriveNotFound, readJsonFile } from "./drive";
+import { driveEnabled, DriveNotFound, fileModifiedAt, readJsonFile } from "./drive";
 import { deleteCard, getCard, putCard } from "./linkcard";
 import { type LoadedSnapshot, loadFromDrive, loadSnapshot } from "./snapshots";
 
@@ -167,10 +167,15 @@ async function fromCard(env: Env, ctx: ExecutionContext, origin: string, token: 
   const card = await getCard(env, token);
   if (!card) return null;
   try {
-    return await render(card, origin, token, variant, ttlMs, async () => {
+    // The card may be up to CARD_MAX_AGE_MS old; the Drive file's modified time is always current.
+    const modified = await fileModifiedAt(env, card.driveFileId);
+    const cardSuccess = card.lastSuccessAt ? Date.parse(card.lastSuccessAt) : 0;
+    const lastSuccess = new Date(Math.max(cardSuccess, modified?.getTime() ?? 0) || Date.now());
+    const view = { ...card, lastSuccessAt: lastSuccess.toISOString() };
+    return await render(view, origin, token, variant, ttlMs, async () => {
       const text = await readJsonFile(env, card.driveFileId);
       let parsed: unknown;
-      return { fetchedAt: new Date(card.lastSuccessAt ?? Date.now()), sizeBytes: card.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
+      return { fetchedAt: lastSuccess, sizeBytes: card.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
     });
   } catch (err) {
     // Drive file gone: drop the card and let the MongoDB path repair things.
