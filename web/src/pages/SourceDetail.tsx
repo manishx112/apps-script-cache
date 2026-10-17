@@ -17,7 +17,10 @@ export default function SourceDetail() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("powerbi");
 
+  const [reloading, setReloading] = useState(false);
+
   const load = useCallback(async () => {
+    setReloading(true);
     try {
       const [{ source }, { logs }] = await Promise.all([api.getSource(id), api.logs(id)]);
       setSource(source);
@@ -25,9 +28,11 @@ export default function SourceDetail() {
       setError(null);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not load the source.");
+    } finally {
+      setReloading(false);
     }
   }, [id]);
-  usePolling(load, 300_000);
+  usePolling(load, 600_000);
 
   const { actions, busy, dialog } = useSourceActions((_, updated) => {
     if (!updated) return navigate("/");
@@ -135,7 +140,7 @@ export default function SourceDetail() {
 
       {source.health === "pending" && (
         <div className="flex items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200 ring-inset">
-          <Spinner /> Waiting for the first successful fetch — this page updates every 5 min (or click Refresh now).
+          <Spinner /> Waiting for the first successful fetch — this page updates every 10 min (or click Reload).
         </div>
       )}
       {source.lastError && <ErrorBox message={`Last fetch failed: ${source.lastError} — the link keeps serving the last good data.`} />}
@@ -168,13 +173,18 @@ export default function SourceDetail() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-5 py-4">
           <div>
             <h2 className="font-semibold text-slate-900">Fetch history</h2>
-            <p className="text-xs text-slate-500">Last 50 fetches · kept for 7 days</p>
+            <p className="text-xs text-slate-500">Last 50 fetches · kept for 7 days · auto-refresh 10 min</p>
           </div>
-          {logs && logs.length > 0 && (
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-              {Math.round((okCount / logs.length) * 100)}% success
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {logs && logs.length > 0 && (
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                {Math.round((okCount / logs.length) * 100)}% success
+              </span>
+            )}
+            <button className="btn-secondary px-3 py-1.5 text-xs" onClick={load} disabled={reloading} title="Reload the history now (does not call Apps Script)">
+              <RefreshCw className={`size-3.5 ${reloading ? "animate-spin" : ""}`} /> Reload
+            </button>
+          </div>
         </div>
         {logs === null ? (
           <div className="space-y-3 p-5">

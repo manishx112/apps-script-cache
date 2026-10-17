@@ -25,7 +25,7 @@ export default function Dashboard() {
       setRefreshing(false);
     }
   }, []);
-  usePolling(load, 300_000);
+  usePolling(load, 600_000);
 
   const { actions, busy, dialog } = useSourceActions((id, updated) =>
     setSources((list) => (list ? (updated ? list.map((s) => (s.id === id ? updated : s)) : list.filter((s) => s.id !== id)) : list)),
@@ -41,12 +41,17 @@ export default function Dashboard() {
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Sources</h1>
           <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
             Every Apps Script URL you cache, with its live status.
-            {refreshing && sources ? <Spinner className="size-3.5 text-slate-400" /> : <span className="text-slate-400">· auto-refresh 5 min</span>}
+            <span className="text-slate-400">· auto-refresh 10 min</span>
           </p>
         </div>
-        <Link to="/sources/new" className="btn-primary">
-          <Plus className="size-4" /> Add source
-        </Link>
+        <div className="flex gap-2">
+          <button className="btn-secondary" onClick={load} disabled={refreshing} title="Reload the list now (does not call Apps Script)">
+            <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} /> Reload
+          </button>
+          <Link to="/sources/new" className="btn-primary">
+            <Plus className="size-4" /> Add source
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
