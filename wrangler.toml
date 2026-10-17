@@ -29,5 +29,10 @@ MAX_SOURCES_PER_RUN = "8"
 FETCH_CONCURRENCY = "2"
 PUBLIC_CACHE_TTL_SECONDS = "60"
 
+# Tiny global note: when the cron next has work to do. Lets off-hours wake-ups skip MongoDB.
+[[kv_namespaces]]
+binding = "SCHEDULER"
+id = "057742f8123c46a79712c4c62971fc1c"
+
 [observability]
 enabled = true

@@ -6,15 +6,29 @@ import { isActiveAt, nextActiveAt } from "./schedule";
 // Cron runs every minute. Treat a source as due slightly early so a 5-minute interval does not
 // slip to 6 minutes because the previous attempt started a few seconds after its cron tick.
 const EARLY_MS = 30_000;
-// While an isolate stays warm it remembers when the next source is due and skips MongoDB until
-// then (each MongoDB connection costs CPU). Capped so edits made elsewhere are picked up soon.
-const MAX_SKIP_MS = 5 * 60_000;
-let nextDueAt = 0;
+// Connecting to MongoDB costs CPU and subrequests, so the time the next source is due is kept
+// in KV (shared by every Worker instance; one cheap read per tick). Cron ticks before that time stop at
+// once — e.g. all night when every source is outside its working hours. Capped so changes
+// made outside this app are still noticed within the hour.
+const MAX_SKIP_MS = 60 * 60_000;
+const NEXT_DUE_KEY = "scheduler:next-due";
+
+async function readNextDue(env: Env): Promise<number> {
+  const stored = Number(await env.SCHEDULER.get(NEXT_DUE_KEY).catch(() => null));
+  return Number.isFinite(stored) ? stored : 0;
+}
+
+async function writeNextDue(env: Env, at: number, previous: number): Promise<void> {
+  // KV allows 1,000 writes/day on the free plan: only write when the value really changes.
+  if (Math.abs(at - previous) < 1_000) return;
+  await env.SCHEDULER.put(NEXT_DUE_KEY, String(at)).catch((e) => console.error("scheduler: KV write failed", String(e)));
+}
 
 export async function runScheduler(env: Env, scheduledTime: number): Promise<void> {
   const now = scheduledTime || Date.now();
-  if (now < nextDueAt) {
-    console.log(`scheduler: nothing due until ${new Date(nextDueAt).toISOString()}, skipped`);
+  const nextDue = await readNextDue(env);
+  if (now < nextDue) {
+    console.log(`scheduler: nothing due until ${new Date(nextDue).toISOString()}, skipped (no MongoDB)`);
     return;
   }
   const maxPerRun = intVar(env.MAX_SOURCES_PER_RUN, 10);
@@ -49,11 +63,13 @@ export async function runScheduler(env: Env, scheduledTime: number): Promise<voi
       const base = fetched.has(String(s._id)) ? Date.now() + s.intervalMin * 60_000 - EARLY_MS : Math.max(intervalDue(s), Date.now());
       nextAt = Math.min(nextAt, nextActiveAt(s.schedule, base));
     }
-    nextDueAt = due.length >= maxPerRun ? 0 : Math.min(nextAt, Date.now() + MAX_SKIP_MS);
+    const next = due.length >= maxPerRun ? 0 : Math.min(nextAt, Date.now() + MAX_SKIP_MS);
+    await writeNextDue(env, next, nextDue);
+    if (next > Date.now()) console.log(`scheduler: next work at ${new Date(next).toISOString()}`);
   });
 }
 
-/** Called after admin edits in this isolate so the next cron tick re-checks MongoDB. */
-export function resetSchedulerMemo(): void {
-  nextDueAt = 0;
+/** After a source is created or edited: make the next cron tick look at MongoDB again. */
+export function resetSchedulerMemo(env: Env, ctx: ExecutionContext): void {
+  ctx.waitUntil(env.SCHEDULER.delete(NEXT_DUE_KEY).catch(() => {}));
 }

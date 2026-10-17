@@ -126,7 +126,7 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
       const created: SourceDoc = { ...doc, _id: new ObjectId() };
       await d.sources.insertOne(created);
       ctx.waitUntil(refreshSource(env, d, created, timeoutMs).catch((e) => console.error("first fetch failed", String(e))).finally(() => d.close().catch(() => {})));
-      resetSchedulerMemo();
+      resetSchedulerMemo(env, ctx);
       return json({ source: serialize(created) }, { status: 201 });
     } catch (err) {
       ctx.waitUntil(d.close().catch(() => {}));
@@ -166,7 +166,7 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
         if (updated.driveFileId) renames.push(renameItem(env, updated.driveFileId, jsonFileName(set.name)));
         ctx.waitUntil(Promise.all(renames).catch((e) => console.error("drive rename failed", String(e))));
       }
-      resetSchedulerMemo();
+      resetSchedulerMemo(env, ctx);
       return json({ source: serialize(updated) });
     });
   }
