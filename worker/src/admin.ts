@@ -10,6 +10,7 @@ import { purgePublic } from "./public";
 import { refreshSource } from "./refresh";
 import { resetSchedulerMemo } from "./scheduler";
 import { describeSchedule, isActiveAt, nextActiveAt, parseSchedule } from "./schedule";
+import { deleteCard, putCard } from "./linkcard";
 import { cleanUp, dataReport } from "./maintenance";
 import { buildPreview } from "./shape";
 
@@ -167,6 +168,8 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
         ctx.waitUntil(Promise.all(renames).catch((e) => console.error("drive rename failed", String(e))));
       }
       resetSchedulerMemo(env, ctx);
+      // Name/status/interval show up in the public /meta: keep the link card current.
+      ctx.waitUntil(putCard(env, updated));
       return json({ source: serialize(updated) });
     });
   }
@@ -176,6 +179,7 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
       const s = await getSource(d, id);
       await Promise.all([d.sources.deleteOne({ _id: id }), d.snapshots.deleteOne({ sourceId: id }), d.chunks.deleteMany({ sourceId: id }), d.logs.deleteMany({ sourceId: id })]);
       purgePublic(url.origin, s.token, ctx);
+      ctx.waitUntil(deleteCard(env, s.token));
       // Move its Drive folder (or, for older sources, just the file) to Drive's trash — recoverable for 30 days.
       const driveItem = s.driveFolderId ?? s.driveFileId;
       if (driveItem && driveEnabled(env)) ctx.waitUntil(trashItem(env, driveItem).catch((e) => console.error("drive trash failed", String(e))));
@@ -198,6 +202,8 @@ export async function handleApi(req: Request, env: Env, ctx: ExecutionContext): 
       const s = await getSource(d, id);
       const updated = await d.sources.findOneAndUpdate({ _id: id }, { $set: { token: newToken() } }, { returnDocument: "after" });
       purgePublic(url.origin, s.token, ctx);
+      // Old link must stop working: remove its card, give the new link one.
+      ctx.waitUntil(Promise.all([deleteCard(env, s.token), putCard(env, updated!)]));
       return json({ source: serialize(updated!) });
     });
   }

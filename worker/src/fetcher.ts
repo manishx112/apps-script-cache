@@ -1,5 +1,7 @@
 // Fetches an Apps Script web app and validates that it returned JSON.
 
+import { sha256Hex } from "./http";
+
 // Accepts /macros/s/…, /macros/a/<domain>/s/… and Workspace's /a/macros/<domain>/s/….
 export const SCRIPT_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/macros\/[^/?#]+\/|macros\/(?:a\/[^/?#]+\/)?)s\/[A-Za-z0-9_-]{10,}\/exec(?:\?[^#]*)?$/;
 
@@ -8,7 +10,18 @@ export function isScriptUrl(url: unknown): url is string {
 }
 
 export type FetchOutcome =
-  | { ok: true; durationMs: number; sizeBytes: number; text: string; data: unknown }
+  | {
+      ok: true;
+      durationMs: number;
+      sizeBytes: number;
+      text: string;
+      /** SHA-256 of the response text */
+      hash: string;
+      /** true when `hash` equals `knownHash`: same JSON as last time, so it was not parsed again */
+      unchanged: boolean;
+      /** parsed JSON (undefined when unchanged) */
+      data: unknown;
+    }
   | { ok: false; durationMs: number; sizeBytes: number | null; error: string };
 
 // Google serves Apps Script differently to non-browser clients, so ask the way Chrome does.
@@ -68,7 +81,7 @@ async function attempt(url: string, deadline: number): Promise<Attempt> {
   return { res: null, hops, error: "Too many redirects." };
 }
 
-export async function fetchScript(url: string, timeoutMs: number): Promise<FetchOutcome> {
+export async function fetchScript(url: string, timeoutMs: number, opts: { knownHash?: string | null } = {}): Promise<FetchOutcome> {
   const started = Date.now();
   const deadline = started + timeoutMs;
   const elapsed = () => Date.now() - started;
@@ -117,8 +130,11 @@ export async function fetchScript(url: string, timeoutMs: number): Promise<Fetch
     };
   }
   if (!trimmed) return { ok: false, durationMs, sizeBytes, error: "Apps Script returned an empty response." };
+  // Identical to the last saved response → it was already validated; skip parsing (saves CPU).
+  const hash = await sha256Hex(text);
+  if (opts.knownHash && hash === opts.knownHash) return { ok: true, durationMs, sizeBytes, text, hash, unchanged: true, data: undefined };
   try {
-    return { ok: true, durationMs, sizeBytes, text, data: JSON.parse(text) };
+    return { ok: true, durationMs, sizeBytes, text, hash, unchanged: false, data: JSON.parse(text) };
   } catch {
     const sample = trimmed.slice(0, 80).replace(/\s+/g, " ");
     return { ok: false, durationMs, sizeBytes, error: `Response is not valid JSON (starts with: “${sample}”).` };

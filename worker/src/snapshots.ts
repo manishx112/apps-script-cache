@@ -48,9 +48,9 @@ export async function saveToDrive(
   source: Pick<SourceDoc, "_id" | "name" | "driveFileId" | "driveFolderId" | "driveContentHash">,
   text: string,
   sizeBytes: number,
-): Promise<{ storage: "drive"; changed: boolean }> {
+  hash: string,
+): Promise<{ storage: "drive"; changed: boolean; fileId: string }> {
   const root = env.GOOGLE_DRIVE_FOLDER_ID!.trim();
-  const hash = await sha256Hex(text);
   const set: Partial<SourceDoc> = {};
   let folderId = source.driveFolderId ?? null;
   let fileId = source.driveFileId ?? null;
@@ -90,7 +90,7 @@ export async function saveToDrive(
   // lastSizeBytes), so any snapshot copy left in MongoDB from before is redundant — remove it.
   const old = await d.snapshots.findOneAndDelete({ sourceId: source._id }, { projection: { storage: 1 } });
   if (old?.storage === "chunked") await d.chunks.deleteMany({ sourceId: source._id });
-  return { storage: "drive", changed };
+  return { storage: "drive", changed, fileId: fileId! };
 }
 
 /** Reads a Drive-mode source's JSON straight from Drive, using only fields of the source document. */
@@ -107,10 +107,6 @@ export async function loadFromDrive(env: Env, d: Database, source: Pick<SourceDo
   return { fetchedAt: source.lastSuccessAt ?? new Date(), sizeBytes: source.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
 }
 
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
 
 export interface LoadedSnapshot {
   fetchedAt: Date;

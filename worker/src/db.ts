@@ -24,6 +24,8 @@ export interface SourceDoc {
   driveFolderId?: string | null;
   /** SHA-256 of the last uploaded JSON; an identical response skips the upload. */
   driveContentHash?: string | null;
+  /** When this source's KV link card was last written (see linkcard.ts). */
+  linkCardAt?: Date | null;
   /** Refresh only on these days/hours; null or missing = around the clock. */
   schedule?: Schedule | null;
 }

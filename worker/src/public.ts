@@ -7,8 +7,9 @@
 import { type Database, TOKEN_RE, withDb } from "./db";
 import { errorJson, HttpError, intVar, redact } from "./http";
 import { toCsv } from "./shape";
-import { driveEnabled } from "./drive";
-import { loadFromDrive, loadSnapshot } from "./snapshots";
+import { driveEnabled, DriveNotFound, readJsonFile } from "./drive";
+import { deleteCard, getCard, putCard } from "./linkcard";
+import { type LoadedSnapshot, loadFromDrive, loadSnapshot } from "./snapshots";
 
 interface Cached {
   status: number;
@@ -93,10 +94,10 @@ export async function handlePublic(req: Request, env: Env, ctx: ExecutionContext
     return respond(c, "edge", req.method);
   }
 
-  // Miss: read MongoDB
+  // Miss: the link card in KV (Drive mode) avoids MongoDB entirely; otherwise read MongoDB.
   let c: Cached;
   try {
-    c = await withDb(env, ctx, (d) => build(env, d, url.origin, token, variant, ttlMs));
+    c = (await fromCard(env, ctx, url.origin, token, variant, ttlMs)) ?? (await withDb(env, ctx, (d) => build(env, ctx, d, url.origin, token, variant, ttlMs)));
   } catch (err) {
     if (err instanceof HttpError) {
       c = { status: err.status, body: JSON.stringify({ error: err.message }), contentType: "application/json; charset=utf-8", fetchedAt: null, expires: Date.now() + (err.status === 404 ? ttlMs : 10_000) };
@@ -120,33 +121,72 @@ function remember(key: string, c: Cached): void {
   memory.set(key, c);
 }
 
-async function build(env: Env, d: Database, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached> {
-  const source = await d.sources.findOne({ token });
-  if (!source) throw new HttpError(404, "Unknown link.");
-  const expires = Date.now() + ttlMs;
+/** What a public read shows about a source — from MongoDB or from its KV link card. */
+interface SourceView {
+  name: string;
+  status: string;
+  intervalMin: number;
+  lastFetchedAt: Date | string | null;
+  lastSuccessAt: Date | string | null;
+  lastError: string | null;
+  lastDurationMs: number | null;
+  lastSizeBytes: number | null;
+}
 
+async function render(view: SourceView, origin: string, token: string, variant: Variant, ttlMs: number, load: () => Promise<LoadedSnapshot | null>): Promise<Cached> {
+  const expires = Date.now() + ttlMs;
+  const successIso = view.lastSuccessAt ? new Date(view.lastSuccessAt).toISOString() : null;
   if (variant === "meta") {
     const meta = {
-      name: source.name,
-      status: source.status,
-      intervalMin: source.intervalMin,
-      lastFetchedAt: source.lastFetchedAt,
-      lastSuccessAt: source.lastSuccessAt,
-      lastError: source.lastError,
-      lastDurationMs: source.lastDurationMs,
-      sizeBytes: source.lastSizeBytes,
+      name: view.name,
+      status: view.status,
+      intervalMin: view.intervalMin,
+      lastFetchedAt: view.lastFetchedAt,
+      lastSuccessAt: view.lastSuccessAt,
+      lastError: view.lastError,
+      lastDurationMs: view.lastDurationMs,
+      sizeBytes: view.lastSizeBytes,
       dataUrl: `${origin}/d/${token}`,
       csvUrl: `${origin}/d/${token}?format=csv`,
     };
-    return { status: 200, body: JSON.stringify(meta, null, 2), contentType: "application/json; charset=utf-8", fetchedAt: source.lastSuccessAt?.toISOString() ?? null, expires };
+    return { status: 200, body: JSON.stringify(meta, null, 2), contentType: "application/json; charset=utf-8", fetchedAt: successIso, expires };
   }
 
-  const snap = source.driveFileId && driveEnabled(env) ? await loadFromDrive(env, d, source) : await loadSnapshot(env, d, source._id);
-  if (!snap) throw new HttpError(503, source.lastError ? `No data yet — last fetch failed: ${source.lastError}` : "No data yet — the first fetch has not finished. Try again in a minute.");
+  const snap = await load();
+  if (!snap) throw new HttpError(503, view.lastError ? `No data yet — last fetch failed: ${view.lastError}` : "No data yet — the first fetch has not finished. Try again in a minute.");
   const fetchedAt = snap.fetchedAt.toISOString();
   if (variant === "csv") {
-    const filename = `${source.name.replace(/[^A-Za-z0-9 _-]+/g, "").trim().replace(/\s+/g, "-") || "data"}.csv`;
+    const filename = `${view.name.replace(/[^A-Za-z0-9 _-]+/g, "").trim().replace(/s+/g, "-") || "data"}.csv`;
     return { status: 200, body: toCsv(snap.data()), contentType: "text/csv; charset=utf-8", fetchedAt, expires, extra: { "content-disposition": `inline; filename="${filename}"` } };
   }
   return { status: 200, body: snap.text, contentType: "application/json; charset=utf-8", fetchedAt, expires };
+}
+
+/** Serve from the KV link card + Google Drive, without MongoDB. null = no usable card. */
+async function fromCard(env: Env, ctx: ExecutionContext, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached | null> {
+  const card = await getCard(env, token);
+  if (!card) return null;
+  try {
+    return await render(card, origin, token, variant, ttlMs, async () => {
+      const text = await readJsonFile(env, card.driveFileId);
+      let parsed: unknown;
+      return { fetchedAt: new Date(card.lastSuccessAt ?? Date.now()), sizeBytes: card.lastSizeBytes ?? text.length, text, data: () => (parsed ??= JSON.parse(text)) };
+    });
+  } catch (err) {
+    // Drive file gone: drop the card and let the MongoDB path repair things.
+    if (err instanceof DriveNotFound) {
+      ctx.waitUntil(deleteCard(env, token));
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function build(env: Env, ctx: ExecutionContext, d: Database, origin: string, token: string, variant: Variant, ttlMs: number): Promise<Cached> {
+  const source = await d.sources.findOne({ token });
+  if (!source) throw new HttpError(404, "Unknown link.");
+  const drive = !!source.driveFileId && driveEnabled(env);
+  // Warm the link card so the next miss skips MongoDB.
+  if (drive) ctx.waitUntil(putCard(env, source));
+  return render(source, origin, token, variant, ttlMs, () => (drive ? loadFromDrive(env, d, source) : loadSnapshot(env, d, source._id)));
 }
